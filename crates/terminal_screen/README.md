@@ -10,6 +10,8 @@ pub struct ScreenCell {
     pub has_contents: bool,
     pub is_wide: bool,
     pub is_wide_continuation: bool,
+    pub fg: ScreenColor,
+    pub bg: ScreenColor,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
@@ -43,6 +45,7 @@ impl TerminalScreen {
 - принимает байты terminal output;
 - применяет их к экранному состоянию;
 - хранит видимые строки, курсор, атрибуты ячеек и scrollback;
+- хранит foreground/background colors terminal cells;
 - различает обычные ячейки, wide-char ячейки и continuation cells;
 - дает безопасное представление экрана для следующих слоев.
 
@@ -68,3 +71,4 @@ impl TerminalScreen {
 - базовые атрибуты ячеек доступны через `visible_lines()`.
 - gap cells видны как отдельные terminal cells даже при пустом `text`;
 - continuation-ячейки wide-character помечаются явно.
+- foreground и background colors пробрасываются в `ScreenCell`.

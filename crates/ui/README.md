@@ -53,6 +53,8 @@ let frame_view = FrameView {
                         has_contents: true,
                         is_wide: false,
                         is_wide_continuation: false,
+                        fg: ScreenColor::Default,
+                        bg: ScreenColor::Default,
                         bold: false,
                         italic: false,
                         underline: false,
@@ -75,6 +77,7 @@ let frame_view = FrameView {
 - активное окно выделяется желтой рамкой и жирным шрифтом;
 - неактивные окна рисуются темно-серой рамкой;
 - содержимое окна рисуется не как обычный текстовый paragraph, а как terminal-cell grid по `PaneView.lines`;
+- foreground/background colors terminal cells применяются при отрисовке pane content;
 - перед записью pane content UI очищает content area панели, чтобы не оставлять артефакты старого кадра;
 - курсор активной панели рисуется отдельным контрастным инвертированным блоком поверх уже отрисованной панели по `PaneView.cursor`;
 - если курсор попадает на continuation-ячейку wide-character, UI нормализует его на ведущую ячейку символа;

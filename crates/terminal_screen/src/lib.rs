@@ -1,11 +1,21 @@
 //! Экранное состояние одной терминальной панели.
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScreenColor {
+    #[default]
+    Default,
+    Indexed(u8),
+    Rgb(u8, u8, u8),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenCell {
     pub text: String,
     pub has_contents: bool,
     pub is_wide: bool,
     pub is_wide_continuation: bool,
+    pub fg: ScreenColor,
+    pub bg: ScreenColor,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
@@ -67,6 +77,8 @@ impl TerminalScreen {
                     has_contents: cell.has_contents(),
                     is_wide: cell.is_wide(),
                     is_wide_continuation: cell.is_wide_continuation(),
+                    fg: screen_color(cell.fgcolor()),
+                    bg: screen_color(cell.bgcolor()),
                     bold: cell.bold(),
                     italic: cell.italic(),
                     underline: cell.underline(),
@@ -85,6 +97,14 @@ impl TerminalScreen {
 
     pub fn set_scrollback(&mut self, rows: usize) {
         self.parser.screen_mut().set_scrollback(rows);
+    }
+}
+
+fn screen_color(color: vt100::Color) -> ScreenColor {
+    match color {
+        vt100::Color::Default => ScreenColor::Default,
+        vt100::Color::Idx(index) => ScreenColor::Indexed(index),
+        vt100::Color::Rgb(r, g, b) => ScreenColor::Rgb(r, g, b),
     }
 }
 
@@ -149,6 +169,8 @@ mod tests {
         assert!(first_line.cells[0].has_contents);
         assert!(!first_line.cells[0].is_wide);
         assert!(!first_line.cells[0].is_wide_continuation);
+        assert_eq!(first_line.cells[0].fg, ScreenColor::Default);
+        assert_eq!(first_line.cells[0].bg, ScreenColor::Default);
         assert!(first_line.cells[0].bold);
         assert_eq!(first_line.cells[1].text, "B");
         assert!(first_line.cells[1].has_contents);
@@ -216,5 +238,17 @@ mod tests {
         assert!(line.cells[2].has_contents);
         assert!(!line.cells[2].is_wide);
         assert!(!line.cells[2].is_wide_continuation);
+    }
+
+    #[test]
+    fn visible_lines_expose_foreground_and_background_colors() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+        screen.process_bytes(b"\x1b[31;47mA\x1b[m");
+
+        let line = screen.visible_lines().remove(0);
+
+        assert_eq!(line.cells[0].text, "A");
+        assert_eq!(line.cells[0].fg, ScreenColor::Indexed(1));
+        assert_eq!(line.cells[0].bg, ScreenColor::Indexed(7));
     }
 }

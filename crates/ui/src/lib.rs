@@ -4,7 +4,7 @@ use std::io;
 
 use mtrm_core::{PaneId, TabId};
 use mtrm_layout::Rect;
-use mtrm_terminal_screen::ScreenLine;
+use mtrm_terminal_screen::{ScreenColor, ScreenLine};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::layout::Rect as TuiRect;
@@ -155,6 +155,12 @@ fn render_pane_content(
             };
 
             let mut style = Style::default();
+            if let Some(color) = to_tui_color(cell.fg) {
+                style = style.fg(color);
+            }
+            if let Some(color) = to_tui_color(cell.bg) {
+                style = style.bg(color);
+            }
             if cell.bold {
                 style = style.add_modifier(Modifier::BOLD);
             }
@@ -165,16 +171,35 @@ fn render_pane_content(
                 style = style.add_modifier(Modifier::UNDERLINED);
             }
             if cell.inverse {
-                style = style
-                    .fg(Color::Black)
-                    .bg(Color::Gray)
-                    .add_modifier(Modifier::REVERSED);
+                style = invert_style(style);
             }
 
             let buffer_cell = &mut buffer[(content_x.saturating_add(col), content_y.saturating_add(row))];
             buffer_cell.set_symbol(symbol);
             buffer_cell.set_style(style);
         }
+    }
+}
+
+fn to_tui_color(color: ScreenColor) -> Option<Color> {
+    match color {
+        ScreenColor::Default => None,
+        ScreenColor::Indexed(index) => Some(Color::Indexed(index)),
+        ScreenColor::Rgb(r, g, b) => Some(Color::Rgb(r, g, b)),
+    }
+}
+
+fn invert_style(style: Style) -> Style {
+    let fg = style.fg;
+    let bg = style.bg;
+    match (fg, bg) {
+        (Some(fg), Some(bg)) => style.fg(bg).bg(fg).add_modifier(Modifier::REVERSED),
+        (Some(fg), None) => style.fg(Color::Reset).bg(fg).add_modifier(Modifier::REVERSED),
+        (None, Some(bg)) => style.fg(bg).bg(Color::Reset).add_modifier(Modifier::REVERSED),
+        (None, None) => style
+            .fg(Color::Black)
+            .bg(Color::Gray)
+            .add_modifier(Modifier::REVERSED),
     }
 }
 
@@ -328,6 +353,8 @@ mod tests {
                                 has_contents: true,
                                 is_wide: false,
                                 is_wide_continuation: false,
+                                fg: ScreenColor::Default,
+                                bg: ScreenColor::Default,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -481,6 +508,8 @@ mod tests {
                                 has_contents: true,
                                 is_wide: false,
                                 is_wide_continuation: false,
+                                fg: ScreenColor::Default,
+                                bg: ScreenColor::Default,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -528,6 +557,8 @@ mod tests {
                                 has_contents: true,
                                 is_wide: false,
                                 is_wide_continuation: false,
+                                fg: ScreenColor::Default,
+                                bg: ScreenColor::Default,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -574,6 +605,8 @@ mod tests {
                                 has_contents: true,
                                 is_wide: false,
                                 is_wide_continuation: false,
+                                fg: ScreenColor::Default,
+                                bg: ScreenColor::Default,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -584,6 +617,8 @@ mod tests {
                                 has_contents: true,
                                 is_wide: false,
                                 is_wide_continuation: false,
+                                fg: ScreenColor::Default,
+                                bg: ScreenColor::Default,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -630,6 +665,8 @@ mod tests {
                                 has_contents: true,
                                 is_wide: false,
                                 is_wide_continuation: false,
+                                fg: ScreenColor::Default,
+                                bg: ScreenColor::Default,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -677,6 +714,8 @@ mod tests {
                                 has_contents: true,
                                 is_wide: false,
                                 is_wide_continuation: false,
+                                fg: ScreenColor::Default,
+                                bg: ScreenColor::Default,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -1052,6 +1091,8 @@ mod tests {
                                 has_contents: true,
                                 is_wide: true,
                                 is_wide_continuation: false,
+                                fg: ScreenColor::Default,
+                                bg: ScreenColor::Default,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -1062,6 +1103,8 @@ mod tests {
                                 has_contents: false,
                                 is_wide: false,
                                 is_wide_continuation: true,
+                                fg: ScreenColor::Default,
+                                bg: ScreenColor::Default,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -1072,6 +1115,8 @@ mod tests {
                                 has_contents: true,
                                 is_wide: false,
                                 is_wide_continuation: false,
+                                fg: ScreenColor::Default,
+                                bg: ScreenColor::Default,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -1094,5 +1139,53 @@ mod tests {
         assert_eq!(leading.style().bg, Some(Color::White));
         assert_eq!(continuation.symbol(), " ");
         assert_ne!(continuation.style().bg, Some(Color::White));
+    }
+
+    #[test]
+    fn renders_terminal_background_color_from_screen_cells() {
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![PaneView {
+                    id: PaneId::new(1),
+                    title: "pane".to_owned(),
+                    area: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 12,
+                        height: 5,
+                    },
+                    active: true,
+                    lines: vec![ScreenLine {
+                        cells: vec![mtrm_terminal_screen::ScreenCell {
+                            text: "x".to_owned(),
+                            has_contents: true,
+                            is_wide: false,
+                            is_wide_continuation: false,
+                            fg: ScreenColor::Indexed(1),
+                            bg: ScreenColor::Indexed(7),
+                            bold: false,
+                            italic: false,
+                            underline: false,
+                            inverse: false,
+                        }],
+                    }],
+                    cursor: None,
+                }],
+            },
+            20,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        let cell = &buffer[(1, 2)];
+
+        assert_eq!(cell.symbol(), "x");
+        assert_eq!(cell.style().fg, Some(Color::Indexed(1)));
+        assert_eq!(cell.style().bg, Some(Color::Indexed(7)));
     }
 }
