@@ -1,0 +1,12 @@
+[package]
+name = "mtrm-input"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+mtrm-core = { path = "../core" }
+mtrm-keymap = { path = "../keymap" }
+crossterm = "0.28"

@@ -1,0 +1,18 @@
+[package]
+name = "mtrm-tabs"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+mtrm-core = { path = "../core" }
+mtrm-layout = { path = "../layout" }
+mtrm-process = { path = "../process" }
+mtrm-session = { path = "../session" }
+mtrm-terminal-screen = { path = "../terminal_screen" }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,19 @@
+[package]
+name = "mtrm-state"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+mtrm-config = { path = "../config" }
+mtrm-session = { path = "../session" }
+thiserror = "2"
+toml = "0.8"
+
+[dev-dependencies]
+mtrm-core = { path = "../core" }
+mtrm-layout = { path = "../layout" }
+serial_test = "3"
+tempfile = "3"

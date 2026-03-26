@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/config",
+    "crates/keymap",
+    "crates/layout",
+    "crates/clipboard",
+    "crates/process",
+    "crates/terminal_screen",
+    "crates/input",
+    "crates/session",
+    "crates/state",
+    "crates/tabs",
+    "crates/ui",
+    "app",
+]
+resolver = "2"

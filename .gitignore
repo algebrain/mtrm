@@ -1,0 +1,20 @@
+# Rust build artifacts
+/target/
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local project notes and assistant artifacts
+.plans
+.answers
+.pics
+.mem26
+*.local
+*.local.*
+AGENTS.md

@@ -1,0 +1,11 @@
+[package]
+name = "mtrm-clipboard"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+arboard = "3"
+thiserror = "2"

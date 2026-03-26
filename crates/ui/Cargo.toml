@@ -1,0 +1,13 @@
+[package]
+name = "mtrm-ui"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+mtrm-core = { path = "../core" }
+mtrm-layout = { path = "../layout" }
+mtrm-terminal-screen = { path = "../terminal_screen" }
+ratatui = "0.28"

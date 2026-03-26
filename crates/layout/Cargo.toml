@@ -1,0 +1,14 @@
+[package]
+name = "mtrm-layout"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+mtrm-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+proptest = "1"
