@@ -51,11 +51,11 @@
 
 Конкретные места:
 
-- импорты Unix-only API в [crates/process/src/lib.rs](/home/algebrain/src/my/mterm/crates/process/src/lib.rs:14)
-- вычисление `process_group_id` через `getpgid(...)` в [crates/process/src/lib.rs](/home/algebrain/src/my/mterm/crates/process/src/lib.rs:88)
-- `send_interrupt()` через `signal::kill(..., SIGINT)` в [crates/process/src/lib.rs](/home/algebrain/src/my/mterm/crates/process/src/lib.rs:133)
-- завершение дерева процессов через `SIGHUP`/`SIGKILL` в [crates/process/src/lib.rs](/home/algebrain/src/my/mterm/crates/process/src/lib.rs:164)
-- отправка сигналов в process group в [crates/process/src/lib.rs](/home/algebrain/src/my/mterm/crates/process/src/lib.rs:179)
+- импорты Unix-only API в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
+- вычисление `process_group_id` через `getpgid(...)` в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
+- `send_interrupt()` через `signal::kill(..., SIGINT)` в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
+- завершение дерева процессов через `SIGHUP`/`SIGKILL` в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
+- отправка сигналов в process group в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
 
 ### Secondary compiler errors
 
@@ -90,19 +90,19 @@
 
 Конкретные места:
 
-- выбор стратегии в [crates/process/src/lib.rs](/home/algebrain/src/my/mterm/crates/process/src/lib.rs:191)
-- возврат ошибки для неподдерживаемой платформы в [crates/process/src/lib.rs](/home/algebrain/src/my/mterm/crates/process/src/lib.rs:209)
-- Linux-only реализация через `/proc/<pid>/cwd` в [crates/process/src/lib.rs](/home/algebrain/src/my/mterm/crates/process/src/lib.rs:215)
+- выбор стратегии в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
+- возврат ошибки для неподдерживаемой платформы в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
+- Linux-only реализация через `/proc/<pid>/cwd` в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
 
 На macOS эта неподдерживаемая ветка начинает ломать не только прямые тесты на `cwd`, но и широкий набор seemingly unrelated тестов. Причина в том, что snapshot tab/pane состояния всегда пытается прочитать живой `cwd` каждого процесса:
 
-- [crates/tabs/src/lib.rs](/home/algebrain/src/my/mterm/crates/tabs/src/lib.rs:343)
-- [crates/tabs/src/lib.rs](/home/algebrain/src/my/mterm/crates/tabs/src/lib.rs:355)
+- [../../crates/tabs/src/lib.rs](../../crates/tabs/src/lib.rs)
+- [../../crates/tabs/src/lib.rs](../../crates/tabs/src/lib.rs)
 
 А `snapshot()` вызывается во многих обычных пользовательских путях:
 
-- `App::save()` в [app/src/main.rs](/home/algebrain/src/my/mterm/app/src/main.rs:183)
-- обработка paste, layout-команд, tab-команд, quit и explicit save в [app/src/main.rs](/home/algebrain/src/my/mterm/app/src/main.rs:226)
+- `App::save()` в [../../app/src/main.rs](../../app/src/main.rs)
+- обработка paste, layout-команд, tab-команд, quit и explicit save в [../../app/src/main.rs](../../app/src/main.rs)
 
 Из-за этого на macOS падают тесты, которые внешне проверяют совсем не `cwd`:
 
