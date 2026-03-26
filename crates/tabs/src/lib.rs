@@ -213,6 +213,11 @@ impl TabManager {
             .map_err(TabsError::Layout)
     }
 
+    pub fn focus_pane(&mut self, pane_id: PaneId) -> Result<(), TabsError> {
+        let tab = self.active_tab_mut();
+        tab.runtime.layout.focus_pane(pane_id).map_err(TabsError::Layout)
+    }
+
     pub fn write_to_active_pane(&mut self, bytes: &[u8]) -> Result<(), TabsError> {
         let pane_id = self.active_pane_id();
         let pane = self

@@ -119,6 +119,7 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) => {
                 let target = self.selection_target_at(content_area, event);
                 if let Some(target) = target {
+                    self.tabs.focus_pane(target.pane_id).map_err(tabs_error)?;
                     self.selection = Some(SelectionState {
                         pane_id: target.pane_id,
                         anchor: target.point,
@@ -970,6 +971,50 @@ mod tests {
         .unwrap();
 
         assert_eq!(clipboard.get_text().unwrap(), "right");
+    }
+
+    #[test]
+    #[serial]
+    fn mouse_click_switches_focus_to_clicked_pane() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let content_area = mtrm_layout::Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 23,
+        };
+
+        app.handle_layout_command(LayoutCommand::SplitFocused(
+            mtrm_core::SplitDirection::Vertical,
+        ))
+        .unwrap();
+        let right_pane = app.tabs.active_pane_id();
+        app.handle_layout_command(LayoutCommand::MoveFocus(FocusMoveDirection::Left))
+            .unwrap();
+        assert_ne!(app.tabs.active_pane_id(), right_pane);
+
+        let right_area = app
+            .tabs
+            .placements(content_area)
+            .unwrap()
+            .into_iter()
+            .find(|(pane_id, _, _)| *pane_id == right_pane)
+            .map(|(_, area, _)| area)
+            .unwrap();
+        let right_content = pane_content_rect(right_area).unwrap();
+
+        app.handle_mouse_event(
+            mouse_event(
+                MouseEventKind::Down(MouseButton::Left),
+                right_content.x,
+                right_content.y,
+            ),
+            content_area,
+        )
+        .unwrap();
+
+        assert_eq!(app.tabs.active_pane_id(), right_pane);
     }
 
     #[test]

@@ -1,5 +1,24 @@
 # mtrm
 
+```text
+███╗   ███╗████████╗██████╗ ███╗   ███╗
+████╗ ████║╚══██╔══╝██╔══██╗████╗ ████║
+██╔████╔██║   ██║   ██████╔╝██╔████╔██║
+██║╚██╔╝██║   ██║   ██╔══██╗██║╚██╔╝██║
+██║ ╚═╝ ██║   ██║   ██║  ██║██║ ╚═╝ ██║
+╚═╝     ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝
+
+  local terminal workspace manager
+  split panes  •  selection  •  copy  •  esc  •  home/end
+
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│   current focus: local, fast, minimal, owned by the user     │
+│   no plugin stack, no remote-session assumptions             │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
 `mtrm` is a personal terminal workspace manager for local shell work.
 
 It gives you tabs, pane splits, keyboard-driven focus movement, clipboard integration, and automatic persistence of layout and working directories.
