@@ -1258,7 +1258,7 @@ mod tests {
         let previous_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let ok = with_env_var("SHELL", "/bin/bash", || {
+        let ok = with_env_var("SHELL", "bash", || {
             let shell = default_shell_config().unwrap();
             let mut app = App::new(shell).unwrap();
             let mut clipboard = MemoryClipboard::new();
@@ -1314,7 +1314,7 @@ mod tests {
         let previous_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let ok = with_env_var("SHELL", "/bin/bash", || {
+        let ok = with_env_var("SHELL", "bash", || {
             let shell = default_shell_config().unwrap();
             let mut app = App::new(shell).unwrap();
             let mut clipboard = MemoryClipboard::new();
@@ -1375,7 +1375,7 @@ mod tests {
         let previous_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let ok = with_env_var("SHELL", "/bin/bash", || {
+        let ok = with_env_var("SHELL", "bash", || {
             let shell = default_shell_config().unwrap();
             let mut app = App::new(shell).unwrap();
             let mut clipboard = MemoryClipboard::new();
@@ -1627,7 +1627,7 @@ mod tests {
         let previous_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let ok = with_env_var("SHELL", "/bin/bash", || {
+        let ok = with_env_var("SHELL", "bash", || {
             let shell = default_shell_config().unwrap();
             let mut app = App::new(shell).unwrap();
 
@@ -1652,7 +1652,7 @@ mod tests {
         let previous_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let ok = with_env_var("SHELL", "/bin/bash", || {
+        let ok = with_env_var("SHELL", "bash", || {
             let shell = default_shell_config().unwrap();
             let mut app = App::new(shell).unwrap();
             let mut clipboard = MemoryClipboard::new();
