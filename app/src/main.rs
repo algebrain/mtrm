@@ -634,6 +634,14 @@ mod tests {
         }
     }
 
+    fn interactive_bash_config(initial_cwd: PathBuf) -> ShellProcessConfig {
+        ShellProcessConfig {
+            program: PathBuf::from("bash"),
+            args: vec!["-i".to_owned()],
+            initial_cwd,
+        }
+    }
+
     fn key_event(code: crossterm::event::KeyCode, modifiers: KeyModifiers) -> KeyEvent {
         KeyEvent {
             code,
@@ -1255,11 +1263,8 @@ mod tests {
     #[test]
     fn plain_left_arrow_moves_shell_cursor_left() {
         let temp = tempdir().unwrap();
-        let previous_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp.path()).unwrap();
-
-        let ok = with_env_var("SHELL", "bash", || {
-            let shell = default_shell_config().unwrap();
+        let ok = {
+            let shell = interactive_bash_config(temp.path().to_path_buf());
             let mut app = App::new(shell).unwrap();
             let mut clipboard = MemoryClipboard::new();
 
@@ -1272,38 +1277,36 @@ mod tests {
                         .unwrap_or(false)
             });
             if !initial_output {
-                return false;
-            }
-
-            app.handle_key_event(
-                key_event(KeyCode::Char('a'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
-            app.handle_key_event(
-                key_event(KeyCode::Char('b'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
-            app.handle_key_event(key_event(KeyCode::Left, KeyModifiers::NONE), &mut clipboard)
+                false
+            } else {
+                app.handle_key_event(
+                    key_event(KeyCode::Char('a'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
                 .unwrap();
-            app.handle_key_event(
-                key_event(KeyCode::Char('X'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
+                app.handle_key_event(
+                    key_event(KeyCode::Char('b'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+                .unwrap();
+                app.handle_key_event(key_event(KeyCode::Left, KeyModifiers::NONE), &mut clipboard)
+                    .unwrap();
+                app.handle_key_event(
+                    key_event(KeyCode::Char('X'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+                .unwrap();
 
-            wait_until(Duration::from_secs(3), || {
-                app.refresh_all_panes_output().is_ok()
-                    && app
-                        .tabs
-                        .active_pane_text()
-                        .map(|text| text.contains("aXb"))
-                        .unwrap_or(false)
-            })
-        });
-
-        std::env::set_current_dir(previous_dir).unwrap();
+                wait_until(Duration::from_secs(3), || {
+                    app.refresh_all_panes_output().is_ok()
+                        && app
+                            .tabs
+                            .active_pane_text()
+                            .map(|text| text.contains("aXb"))
+                            .unwrap_or(false)
+                })
+            }
+        };
         assert!(ok, "left arrow must move shell cursor left before Enter");
     }
 
@@ -1311,11 +1314,8 @@ mod tests {
     #[serial]
     fn plain_home_moves_shell_cursor_to_start_of_line() {
         let temp = tempdir().unwrap();
-        let previous_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp.path()).unwrap();
-
-        let ok = with_env_var("SHELL", "bash", || {
-            let shell = default_shell_config().unwrap();
+        let ok = {
+            let shell = interactive_bash_config(temp.path().to_path_buf());
             let mut app = App::new(shell).unwrap();
             let mut clipboard = MemoryClipboard::new();
 
@@ -1328,43 +1328,41 @@ mod tests {
                         .unwrap_or(false)
             });
             if !initial_output {
-                return false;
-            }
-
-            app.handle_key_event(
-                key_event(KeyCode::Char('a'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
-            app.handle_key_event(
-                key_event(KeyCode::Char('b'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
-            app.handle_key_event(
-                key_event(KeyCode::Char('c'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
-            app.handle_key_event(key_event(KeyCode::Home, KeyModifiers::NONE), &mut clipboard)
+                false
+            } else {
+                app.handle_key_event(
+                    key_event(KeyCode::Char('a'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
                 .unwrap();
-            app.handle_key_event(
-                key_event(KeyCode::Char('X'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
+                app.handle_key_event(
+                    key_event(KeyCode::Char('b'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+                .unwrap();
+                app.handle_key_event(
+                    key_event(KeyCode::Char('c'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+                .unwrap();
+                app.handle_key_event(key_event(KeyCode::Home, KeyModifiers::NONE), &mut clipboard)
+                    .unwrap();
+                app.handle_key_event(
+                    key_event(KeyCode::Char('X'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+                .unwrap();
 
-            wait_until(Duration::from_secs(3), || {
-                app.refresh_all_panes_output().is_ok()
-                    && app
-                        .tabs
-                        .active_pane_text()
-                        .map(|text| text.contains("Xabc"))
-                        .unwrap_or(false)
-            })
-        });
-
-        std::env::set_current_dir(previous_dir).unwrap();
+                wait_until(Duration::from_secs(3), || {
+                    app.refresh_all_panes_output().is_ok()
+                        && app
+                            .tabs
+                            .active_pane_text()
+                            .map(|text| text.contains("Xabc"))
+                            .unwrap_or(false)
+                })
+            }
+        };
         assert!(ok, "home must move shell cursor to the beginning of the line");
     }
 
@@ -1372,11 +1370,8 @@ mod tests {
     #[serial]
     fn plain_end_moves_shell_cursor_to_end_of_line_when_not_scrolled() {
         let temp = tempdir().unwrap();
-        let previous_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp.path()).unwrap();
-
-        let ok = with_env_var("SHELL", "bash", || {
-            let shell = default_shell_config().unwrap();
+        let ok = {
+            let shell = interactive_bash_config(temp.path().to_path_buf());
             let mut app = App::new(shell).unwrap();
             let mut clipboard = MemoryClipboard::new();
 
@@ -1389,52 +1384,50 @@ mod tests {
                         .unwrap_or(false)
             });
             if !initial_output {
-                return false;
+                false
+            } else {
+                app.handle_key_event(
+                    key_event(KeyCode::Char('a'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+                .unwrap();
+                app.handle_key_event(
+                    key_event(KeyCode::Char('b'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+                .unwrap();
+                app.handle_key_event(
+                    key_event(KeyCode::Char('c'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+                .unwrap();
+                app.handle_key_event(key_event(KeyCode::Left, KeyModifiers::NONE), &mut clipboard)
+                    .unwrap();
+                app.handle_key_event(key_event(KeyCode::Home, KeyModifiers::NONE), &mut clipboard)
+                    .unwrap();
+                app.handle_key_event(
+                    key_event(KeyCode::Char('X'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+                .unwrap();
+                app.handle_key_event(key_event(KeyCode::End, KeyModifiers::NONE), &mut clipboard)
+                    .unwrap();
+                app.handle_key_event(
+                    key_event(KeyCode::Char('Y'), KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+                .unwrap();
+
+                wait_until(Duration::from_secs(3), || {
+                    app.refresh_all_panes_output().is_ok()
+                        && app
+                            .tabs
+                            .active_pane_text()
+                            .map(|text| text.contains("XabcY"))
+                            .unwrap_or(false)
+                })
             }
-
-            app.handle_key_event(
-                key_event(KeyCode::Char('a'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
-            app.handle_key_event(
-                key_event(KeyCode::Char('b'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
-            app.handle_key_event(
-                key_event(KeyCode::Char('c'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
-            app.handle_key_event(key_event(KeyCode::Left, KeyModifiers::NONE), &mut clipboard)
-                .unwrap();
-            app.handle_key_event(key_event(KeyCode::Home, KeyModifiers::NONE), &mut clipboard)
-                .unwrap();
-            app.handle_key_event(
-                key_event(KeyCode::Char('X'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
-            app.handle_key_event(key_event(KeyCode::End, KeyModifiers::NONE), &mut clipboard)
-                .unwrap();
-            app.handle_key_event(
-                key_event(KeyCode::Char('Y'), KeyModifiers::NONE),
-                &mut clipboard,
-            )
-            .unwrap();
-
-            wait_until(Duration::from_secs(3), || {
-                app.refresh_all_panes_output().is_ok()
-                    && app
-                        .tabs
-                        .active_pane_text()
-                        .map(|text| text.contains("XabcY"))
-                        .unwrap_or(false)
-            })
-        });
-
-        std::env::set_current_dir(previous_dir).unwrap();
+        };
         assert!(ok, "end must move shell cursor to the end of the line when pane is not scrolled");
     }
 
@@ -1624,11 +1617,9 @@ mod tests {
     #[serial]
     fn startup_shows_initial_shell_output_for_default_shell_config() {
         let temp = tempdir().unwrap();
-        let previous_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp.path()).unwrap();
-
         let ok = with_env_var("SHELL", "bash", || {
-            let shell = default_shell_config().unwrap();
+            let mut shell = default_shell_config().unwrap();
+            shell.initial_cwd = temp.path().to_path_buf();
             let mut app = App::new(shell).unwrap();
 
             wait_until(Duration::from_secs(3), || {
@@ -1640,8 +1631,6 @@ mod tests {
                         .unwrap_or(false)
             })
         });
-
-        std::env::set_current_dir(previous_dir).unwrap();
         assert!(ok, "default shell startup must show visible shell output");
     }
 
@@ -1649,11 +1638,9 @@ mod tests {
     #[serial]
     fn startup_shell_echoes_typed_characters_before_enter() {
         let temp = tempdir().unwrap();
-        let previous_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp.path()).unwrap();
-
         let ok = with_env_var("SHELL", "bash", || {
-            let shell = default_shell_config().unwrap();
+            let mut shell = default_shell_config().unwrap();
+            shell.initial_cwd = temp.path().to_path_buf();
             let mut app = App::new(shell).unwrap();
             let mut clipboard = MemoryClipboard::new();
 
@@ -1689,8 +1676,6 @@ mod tests {
                         .unwrap_or(false)
             })
         });
-
-        std::env::set_current_dir(previous_dir).unwrap();
         assert!(
             ok,
             "typed characters must be visible before Enter in interactive shell"
