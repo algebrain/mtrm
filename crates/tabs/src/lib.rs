@@ -417,6 +417,16 @@ impl TabManager {
             .ok_or(TabsError::PaneNotFound(pane_id))
     }
 
+    pub fn pane_selection_text(
+        &self,
+        pane_id: PaneId,
+        start: (u16, u16),
+        end: (u16, u16),
+    ) -> Result<String, TabsError> {
+        let lines = self.pane_lines(pane_id)?;
+        Ok(selection_text_from_lines(&lines, start, end))
+    }
+
     pub fn pane_lines(&self, pane_id: PaneId) -> Result<Vec<ScreenLine>, TabsError> {
         self.find_pane(pane_id)
             .map(|pane| pane.screen.visible_lines())
@@ -487,6 +497,54 @@ fn seed_allocator(ids: &mut IdAllocator, next_tab: u64, next_pane: u64) {
     }
 }
 
+fn normalize_selection(start: (u16, u16), end: (u16, u16)) -> ((u16, u16), (u16, u16)) {
+    if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    }
+}
+
+fn selection_text_from_lines(lines: &[ScreenLine], start: (u16, u16), end: (u16, u16)) -> String {
+    let ((start_row, start_col), (end_row, end_col)) = normalize_selection(start, end);
+    let mut selected_lines = Vec::new();
+
+    for row in start_row..=end_row {
+        let Some(line) = lines.get(row as usize) else {
+            break;
+        };
+
+        let row_start = if row == start_row { start_col } else { 0 };
+        if line.cells.is_empty() || row_start as usize >= line.cells.len() {
+            selected_lines.push(String::new());
+            continue;
+        }
+
+        let row_end = if row == end_row {
+            end_col
+        } else {
+            line.cells.len().saturating_sub(1) as u16
+        };
+        let bounded_end = row_end.min(line.cells.len().saturating_sub(1) as u16);
+
+        let mut text = String::new();
+        for col in row_start..=bounded_end {
+            let cell = &line.cells[col as usize];
+            if cell.is_wide_continuation {
+                continue;
+            }
+            if cell.has_contents {
+                text.push_str(&cell.text);
+            } else {
+                text.push(' ');
+            }
+        }
+        selected_lines.push(text.trim_end_matches(' ').to_owned());
+    }
+
+    selected_lines.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -553,6 +611,20 @@ mod tests {
             }
         }
         result
+    }
+
+    fn find_visible_text_position(
+        manager: &TabManager,
+        pane_id: PaneId,
+        needle: &str,
+    ) -> (u16, u16) {
+        let text = manager.pane_text(pane_id).unwrap();
+        for (row, line) in text.split('\n').enumerate() {
+            if let Some(col) = line.find(needle) {
+                return (row as u16, col as u16);
+            }
+        }
+        panic!("could not find {needle:?} in pane text: {text:?}");
     }
 
     #[test]
@@ -925,5 +997,51 @@ mod tests {
             has_program_identity,
             "interactive apps inside mtrm should be able to detect that they are running under mtrm via TERM_PROGRAM=mtrm"
         );
+    }
+
+    #[test]
+    fn pane_selection_text_extracts_single_line_range() {
+        let temp = tempdir().unwrap();
+        let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+        manager
+            .write_to_active_pane(b"printf 'hello world'\n")
+            .unwrap();
+
+        let loaded = wait_until(Duration::from_secs(2), || {
+            manager.refresh_all_panes().unwrap_or(false)
+                && manager
+                    .active_pane_text()
+                    .map(|text| text.contains("hello world"))
+                    .unwrap_or(false)
+        });
+        assert!(loaded);
+        let (row, col) = find_visible_text_position(&manager, manager.active_pane_id(), "hello");
+
+        let selected = manager
+            .pane_selection_text(manager.active_pane_id(), (row, col), (row, col + 4))
+            .unwrap();
+        assert_eq!(selected, "hello");
+    }
+
+    #[test]
+    fn pane_selection_text_preserves_internal_spaces_and_wide_chars() {
+        let temp = tempdir().unwrap();
+        let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+        manager.write_to_active_pane("界 a".as_bytes()).unwrap();
+
+        let loaded = wait_until(Duration::from_secs(2), || {
+            manager.refresh_all_panes().unwrap_or(false)
+                && manager
+                    .active_pane_text()
+                    .map(|text| text.contains("界 a"))
+                    .unwrap_or(false)
+        });
+        assert!(loaded);
+        let (row, col) = find_visible_text_position(&manager, manager.active_pane_id(), "界 a");
+
+        let selected = manager
+            .pane_selection_text(manager.active_pane_id(), (row, col), (row, col + 3))
+            .unwrap();
+        assert_eq!(selected, "界 a");
     }
 }

@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crossterm::ExecutableCommand;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    MouseButton, MouseEvent, MouseEventKind,
+};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
@@ -14,7 +17,7 @@ use mtrm_keymap::{Keymap, load_keymap};
 use mtrm_process::ShellProcessConfig;
 use mtrm_state::{load_state, save_state};
 use mtrm_tabs::TabManager;
-use mtrm_ui::{FrameView, PaneView, TabView, render_frame};
+use mtrm_ui::{FrameView, PaneSelectionView, PaneView, TabView, render_frame};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::backend::CrosstermBackend;
@@ -24,8 +27,28 @@ pub struct App {
     shell: ShellProcessConfig,
     keymap: Keymap,
     tabs: TabManager,
+    selection: Option<SelectionState>,
     should_quit: bool,
     ui_dirty: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SelectionPoint {
+    row: u16,
+    col: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SelectionState {
+    pane_id: mtrm_core::PaneId,
+    anchor: SelectionPoint,
+    focus: SelectionPoint,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PaneSelectionTarget {
+    pane_id: mtrm_core::PaneId,
+    point: SelectionPoint,
 }
 
 impl App {
@@ -39,6 +62,7 @@ impl App {
             shell,
             keymap,
             tabs,
+            selection: None,
             should_quit: false,
             ui_dirty: true,
         })
@@ -53,6 +77,7 @@ impl App {
                     shell,
                     keymap,
                     tabs,
+                    selection: None,
                     should_quit: false,
                     ui_dirty: true,
                 })
@@ -73,6 +98,7 @@ impl App {
         match map_key_event_with_keymap(event, &self.keymap) {
             InputAction::Ignore => {}
             InputAction::PtyBytes(bytes) => {
+                self.clear_selection();
                 self.tabs.write_to_active_pane(&bytes).map_err(tabs_error)?;
                 self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
             }
@@ -81,6 +107,38 @@ impl App {
             }
         }
 
+        Ok(())
+    }
+
+    fn handle_mouse_event(
+        &mut self,
+        event: MouseEvent,
+        content_area: mtrm_layout::Rect,
+    ) -> Result<(), AppError> {
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let target = self.selection_target_at(content_area, event);
+                if let Some(target) = target {
+                    self.selection = Some(SelectionState {
+                        pane_id: target.pane_id,
+                        anchor: target.point,
+                        focus: target.point,
+                    });
+                } else {
+                    self.clear_selection();
+                }
+                self.ui_dirty = true;
+            }
+            MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left) => {
+                if let Some(target) = self.drag_selection_target(content_area, event) {
+                    if let Some(selection) = &mut self.selection {
+                        selection.focus = target.point;
+                        self.ui_dirty = true;
+                    }
+                }
+            }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -141,7 +199,12 @@ impl App {
             if event::poll(Duration::from_millis(50)).map_err(terminal_io_error)? {
                 match event::read().map_err(terminal_io_error)? {
                     Event::Key(key_event) => self.handle_key_event(key_event, clipboard)?,
+                    Event::Mouse(mouse_event) => {
+                        let content_area = terminal_content_area(terminal)?;
+                        self.handle_mouse_event(mouse_event, content_area)?;
+                    }
                     Event::Resize(cols, rows) => {
+                        self.clear_selection();
                         self.tabs
                             .resize_active_tab(mtrm_layout::Rect {
                                 x: 0,
@@ -167,10 +230,20 @@ impl App {
     ) -> Result<(), AppError> {
         match command {
             AppCommand::Clipboard(ClipboardCommand::CopySelection) => {
-                let text = self.tabs.active_pane_text().map_err(tabs_error)?;
-                clipboard.set_text(&text).map_err(clipboard_error)?;
+                if let Some(selection) = self.selection.filter(|selection| !selection.is_empty()) {
+                    let text = self
+                        .tabs
+                        .pane_selection_text(
+                            selection.pane_id,
+                            (selection.anchor.row, selection.anchor.col),
+                            (selection.focus.row, selection.focus.col),
+                        )
+                        .map_err(tabs_error)?;
+                    clipboard.set_text(&text).map_err(clipboard_error)?;
+                }
             }
             AppCommand::Clipboard(ClipboardCommand::PasteFromSystem) => {
+                self.clear_selection();
                 let text = clipboard.get_text().map_err(clipboard_error)?;
                 self.tabs
                     .write_to_active_pane(text.as_bytes())
@@ -179,6 +252,7 @@ impl App {
                 self.save()?;
             }
             AppCommand::Layout(layout_command) => {
+                self.clear_selection();
                 let persist_state = should_persist_layout_command(&layout_command);
                 self.handle_layout_command(layout_command)?;
                 self.ui_dirty = true;
@@ -187,11 +261,13 @@ impl App {
                 }
             }
             AppCommand::Tabs(tab_command) => {
+                self.clear_selection();
                 self.handle_tab_command(tab_command)?;
                 self.ui_dirty = true;
                 self.save()?;
             }
             AppCommand::SendInterrupt => {
+                self.clear_selection();
                 self.tabs
                     .send_interrupt_to_active_pane()
                     .map_err(tabs_error)?;
@@ -319,6 +395,9 @@ impl App {
                     .pane_lines(id)
                     .map_err(tabs_error)
                     .unwrap_or_default(),
+                selection: self
+                    .selection
+                    .and_then(|selection| selection.view_for(id)),
                 cursor: self.tabs.pane_cursor(id).ok().flatten(),
             })
             .collect();
@@ -350,6 +429,7 @@ fn main() -> Result<(), AppError> {
     stdout
         .execute(EnterAlternateScreen)
         .map_err(terminal_io_error)?;
+    stdout.execute(EnableMouseCapture).map_err(terminal_io_error)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).map_err(terminal_io_error)?;
     let mut clipboard = SystemClipboard::new().map_err(clipboard_error)?;
@@ -360,6 +440,7 @@ fn main() -> Result<(), AppError> {
     })();
 
     let _ = disable_raw_mode();
+    let _ = terminal.backend_mut().execute(DisableMouseCapture);
     let _ = terminal.backend_mut().execute(LeaveAlternateScreen);
     let _ = terminal.show_cursor();
 
@@ -417,10 +498,124 @@ fn terminal_content_area<B: Backend>(
     })
 }
 
+impl SelectionState {
+    fn is_empty(&self) -> bool {
+        self.anchor == self.focus
+    }
+
+    fn normalized(&self) -> (SelectionPoint, SelectionPoint) {
+        if (self.anchor.row, self.anchor.col) <= (self.focus.row, self.focus.col) {
+            (self.anchor, self.focus)
+        } else {
+            (self.focus, self.anchor)
+        }
+    }
+
+    fn view_for(&self, pane_id: mtrm_core::PaneId) -> Option<PaneSelectionView> {
+        if self.pane_id != pane_id || self.is_empty() {
+            return None;
+        }
+        let (start, end) = self.normalized();
+        Some(PaneSelectionView {
+            start: (start.row, start.col),
+            end: (end.row, end.col),
+        })
+    }
+}
+
+impl App {
+    fn clear_selection(&mut self) {
+        self.selection = None;
+    }
+
+    fn selection_target_at(
+        &self,
+        content_area: mtrm_layout::Rect,
+        event: MouseEvent,
+    ) -> Option<PaneSelectionTarget> {
+        self.tabs
+            .placements(content_area)
+            .ok()?
+            .into_iter()
+            .find_map(|(pane_id, area, _)| point_in_pane_content(area, pane_id, event.column, event.row))
+    }
+
+    fn drag_selection_target(
+        &self,
+        content_area: mtrm_layout::Rect,
+        event: MouseEvent,
+    ) -> Option<PaneSelectionTarget> {
+        let selection = self.selection?;
+        let (_, pane_area, _) = self
+            .tabs
+            .placements(content_area)
+            .ok()?
+            .into_iter()
+            .find(|(pane_id, _, _)| *pane_id == selection.pane_id)?;
+        point_in_or_clamped_to_pane_content(pane_area, selection.pane_id, event.column, event.row)
+    }
+}
+
+fn point_in_pane_content(
+    area: mtrm_layout::Rect,
+    pane_id: mtrm_core::PaneId,
+    column: u16,
+    row: u16,
+) -> Option<PaneSelectionTarget> {
+    let rect = pane_content_rect(area)?;
+    if column < rect.x || column >= rect.x.saturating_add(rect.width) {
+        return None;
+    }
+    if row < rect.y || row >= rect.y.saturating_add(rect.height) {
+        return None;
+    }
+    Some(PaneSelectionTarget {
+        pane_id,
+        point: SelectionPoint {
+            row: row.saturating_sub(rect.y),
+            col: column.saturating_sub(rect.x),
+        },
+    })
+}
+
+fn point_in_or_clamped_to_pane_content(
+    area: mtrm_layout::Rect,
+    pane_id: mtrm_core::PaneId,
+    column: u16,
+    row: u16,
+) -> Option<PaneSelectionTarget> {
+    let rect = pane_content_rect(area)?;
+    let max_x = rect.x.saturating_add(rect.width.saturating_sub(1));
+    let max_y = rect.y.saturating_add(rect.height.saturating_sub(1));
+    let clamped_col = column.clamp(rect.x, max_x);
+    let clamped_row = row.clamp(rect.y, max_y);
+    Some(PaneSelectionTarget {
+        pane_id,
+        point: SelectionPoint {
+            row: clamped_row.saturating_sub(rect.y),
+            col: clamped_col.saturating_sub(rect.x),
+        },
+    })
+}
+
+fn pane_content_rect(area: mtrm_layout::Rect) -> Option<mtrm_layout::Rect> {
+    if area.width <= 2 || area.height <= 2 {
+        return None;
+    }
+    Some(mtrm_layout::Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(2),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEventKind, KeyEventState, KeyModifiers};
+    use crossterm::event::{
+        KeyCode, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEventKind,
+    };
     use mtrm_clipboard::MemoryClipboard;
     use mtrm_core::{FocusMoveDirection, LayoutCommand};
     use ratatui::backend::TestBackend;
@@ -444,6 +639,15 @@ mod tests {
             modifiers,
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
+        }
+    }
+
+    fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
         }
     }
 
@@ -495,6 +699,16 @@ mod tests {
             }
         }
         result
+    }
+
+    fn find_visible_text_position(app: &App, pane_id: mtrm_core::PaneId, needle: &str) -> (u16, u16) {
+        let text = app.tabs.pane_text(pane_id).unwrap();
+        for (row, line) in text.split('\n').enumerate() {
+            if let Some(col) = line.find(needle) {
+                return (row as u16, col as u16);
+            }
+        }
+        panic!("could not find {needle:?} in pane text: {text:?}");
     }
 
     #[test]
@@ -629,6 +843,133 @@ mod tests {
             })
         });
         assert!(ok);
+    }
+
+    #[test]
+    #[serial]
+    fn ctrl_c_without_selection_does_not_copy_whole_pane() {
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir(&home).unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        app.tabs
+            .write_to_active_pane(b"printf 'copy me?\\n'\n")
+            .unwrap();
+        let loaded = wait_until(Duration::from_secs(2), || {
+            app.refresh_all_panes_output().unwrap_or(false)
+                && app
+                    .tabs
+                    .active_pane_text()
+                    .map(|text| text.contains("copy me?"))
+                    .unwrap_or(false)
+        });
+        assert!(loaded);
+
+        with_test_home(&home, || {
+            app.handle_key_event(
+                key_event(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                &mut clipboard,
+            )
+        })
+        .unwrap();
+
+        assert_eq!(clipboard.get_text().unwrap(), "");
+    }
+
+    #[test]
+    #[serial]
+    fn ctrl_c_copies_only_selected_text_from_split_pane() {
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir(&home).unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+        let content_area = mtrm_layout::Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 23,
+        };
+
+        app.handle_layout_command(LayoutCommand::SplitFocused(
+            mtrm_core::SplitDirection::Vertical,
+        ))
+        .unwrap();
+        let right_pane = app.tabs.active_pane_id();
+        app.tabs
+            .write_to_active_pane(b"printf 'right pane text\\n'\n")
+            .unwrap();
+        app.handle_layout_command(LayoutCommand::MoveFocus(FocusMoveDirection::Left))
+            .unwrap();
+        app.tabs
+            .write_to_active_pane(b"printf 'left pane text\\n'\n")
+            .unwrap();
+
+        let loaded = wait_until(Duration::from_secs(2), || {
+            app.refresh_all_panes_output().unwrap_or(false)
+                && app
+                    .tabs
+                    .pane_text(right_pane)
+                    .map(|text| text.contains("right pane text"))
+                    .unwrap_or(false)
+                && app
+                    .tabs
+                    .active_pane_text()
+                    .map(|text| text.contains("left pane text"))
+                    .unwrap_or(false)
+        });
+        assert!(loaded);
+
+        let right_area = app
+            .tabs
+            .placements(content_area)
+            .unwrap()
+            .into_iter()
+            .find(|(pane_id, _, _)| *pane_id == right_pane)
+            .map(|(_, area, _)| area)
+            .unwrap();
+        let right_content = pane_content_rect(right_area).unwrap();
+        let (text_row, text_col) = find_visible_text_position(&app, right_pane, "right");
+
+        app.handle_mouse_event(
+            mouse_event(
+                MouseEventKind::Down(MouseButton::Left),
+                right_content.x.saturating_add(text_col),
+                right_content.y.saturating_add(text_row),
+            ),
+            content_area,
+        )
+        .unwrap();
+        app.handle_mouse_event(
+            mouse_event(
+                MouseEventKind::Drag(MouseButton::Left),
+                right_content.x.saturating_add(text_col).saturating_add(4),
+                right_content.y.saturating_add(text_row),
+            ),
+            content_area,
+        )
+        .unwrap();
+        app.handle_mouse_event(
+            mouse_event(
+                MouseEventKind::Up(MouseButton::Left),
+                right_content.x.saturating_add(text_col).saturating_add(4),
+                right_content.y.saturating_add(text_row),
+            ),
+            content_area,
+        )
+        .unwrap();
+
+        with_test_home(&home, || {
+            app.handle_key_event(
+                key_event(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                &mut clipboard,
+            )
+        })
+        .unwrap();
+
+        assert_eq!(clipboard.get_text().unwrap(), "right");
     }
 
     #[test]

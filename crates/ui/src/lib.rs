@@ -28,7 +28,14 @@ pub struct PaneView {
     pub area: Rect,
     pub active: bool,
     pub lines: Vec<ScreenLine>,
+    pub selection: Option<PaneSelectionView>,
     pub cursor: Option<(u16, u16)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneSelectionView {
+    pub start: (u16, u16),
+    pub end: (u16, u16),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,6 +117,7 @@ fn render_pane(frame: &mut ratatui::Frame<'_>, pane: &PaneView, full_area: TuiRe
         .border_style(border_style);
     block.render(area, frame.buffer_mut());
     render_pane_content(frame, pane, area);
+    render_selection_overlay(frame, pane, area);
     render_cursor_overlay(frame, pane, area);
 }
 
@@ -224,6 +232,58 @@ fn shift_and_clip_rect(rect: Rect, full_area: TuiRect) -> TuiRect {
     TuiRect::new(x, y, width, height)
 }
 
+fn render_selection_overlay(frame: &mut ratatui::Frame<'_>, pane: &PaneView, area: TuiRect) {
+    let Some(selection) = &pane.selection else {
+        return;
+    };
+
+    let content_x = area.x.saturating_add(1);
+    let content_y = area.y.saturating_add(1);
+    let content_width = area.width.saturating_sub(2);
+    let content_height = area.height.saturating_sub(2);
+    if content_width == 0 || content_height == 0 {
+        return;
+    }
+
+    let buffer = frame.buffer_mut();
+    for row in 0..content_height {
+        for col in 0..content_width {
+            if !selection_contains(selection, row, col) {
+                continue;
+            }
+            let cell = &mut buffer[(content_x.saturating_add(col), content_y.saturating_add(row))];
+            let style = cell.style();
+            cell.set_style(
+                style
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::REVERSED),
+            );
+        }
+    }
+}
+
+fn selection_contains(selection: &PaneSelectionView, row: u16, col: u16) -> bool {
+    let (start, end) = if selection.start <= selection.end {
+        (selection.start, selection.end)
+    } else {
+        (selection.end, selection.start)
+    };
+
+    if row < start.0 || row > end.0 {
+        return false;
+    }
+    if start.0 == end.0 {
+        return row == start.0 && col >= start.1 && col <= end.1;
+    }
+    if row == start.0 {
+        return col >= start.1;
+    }
+    if row == end.0 {
+        return col <= end.1;
+    }
+    true
+}
+
 fn render_cursor_overlay(frame: &mut ratatui::Frame<'_>, pane: &PaneView, area: TuiRect) {
     if !pane.active {
         return;
@@ -304,6 +364,7 @@ mod tests {
             },
             active: true,
             lines: screen.visible_lines(),
+            selection: None,
             cursor: Some(screen.cursor_position()),
         }
     }
@@ -321,6 +382,7 @@ mod tests {
             area,
             active,
             lines: screen.visible_lines(),
+            selection: None,
             cursor: if active {
                 Some(screen.cursor_position())
             } else {
@@ -366,6 +428,7 @@ mod tests {
                             })
                             .collect(),
                     }],
+                    selection: None,
                     cursor: None,
                 }],
             },
@@ -459,6 +522,7 @@ mod tests {
                         },
                         active: true,
                         lines: vec![],
+                        selection: None,
                         cursor: None,
                     },
                     PaneView {
@@ -472,6 +536,7 @@ mod tests {
                         },
                         active: false,
                         lines: vec![],
+                        selection: None,
                         cursor: None,
                     },
                 ],
@@ -483,6 +548,60 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(0, 1)].style().fg, Some(Color::Yellow));
         assert_eq!(buffer[(10, 1)].style().fg, Some(Color::DarkGray));
+    }
+
+    #[test]
+    fn highlights_selected_cells_inside_pane() {
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![PaneView {
+                    id: PaneId::new(1),
+                    title: "pane".to_owned(),
+                    area: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 12,
+                        height: 5,
+                    },
+                    active: true,
+                    lines: vec![ScreenLine {
+                        cells: "abcd"
+                            .chars()
+                            .map(|ch| mtrm_terminal_screen::ScreenCell {
+                                text: ch.to_string(),
+                                has_contents: true,
+                                is_wide: false,
+                                is_wide_continuation: false,
+                                fg: ScreenColor::Default,
+                                bg: ScreenColor::Default,
+                                dim: false,
+                                bold: false,
+                                italic: false,
+                                underline: false,
+                                inverse: false,
+                            })
+                            .collect(),
+                    }],
+                    selection: Some(PaneSelectionView {
+                        start: (0, 1),
+                        end: (0, 2),
+                    }),
+                    cursor: None,
+                }],
+            },
+            20,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(2, 2)].style().bg, Some(Color::DarkGray));
+        assert_eq!(buffer[(3, 2)].style().bg, Some(Color::DarkGray));
+        assert_ne!(buffer[(1, 2)].style().bg, Some(Color::DarkGray));
     }
 
     #[test]
@@ -522,6 +641,7 @@ mod tests {
                             })
                             .collect(),
                     }],
+                    selection: None,
                     cursor: None,
                 }],
             },
@@ -572,6 +692,7 @@ mod tests {
                             })
                             .collect(),
                     }],
+                    selection: None,
                     cursor: Some((0, 1)),
                 }],
             },
@@ -634,6 +755,7 @@ mod tests {
                             },
                         ],
                     }],
+                    selection: None,
                     cursor: Some((0, 1)),
                 }],
             },
@@ -683,6 +805,7 @@ mod tests {
                             })
                             .collect(),
                     }],
+                    selection: None,
                     cursor: Some((0, 2)),
                 }],
             },
@@ -733,6 +856,7 @@ mod tests {
                             })
                             .collect(),
                     }],
+                    selection: None,
                     cursor: Some((0, 1)),
                 }],
             },
@@ -1137,6 +1261,7 @@ mod tests {
                             },
                         ],
                     }],
+                    selection: None,
                     cursor: Some((0, 1)),
                 }],
             },
@@ -1188,6 +1313,7 @@ mod tests {
                             inverse: false,
                         }],
                     }],
+                    selection: None,
                     cursor: None,
                 }],
             },
@@ -1226,6 +1352,7 @@ mod tests {
                     },
                     active: true,
                     lines: screen.visible_lines(),
+                    selection: None,
                     cursor: None,
                 }],
             },
@@ -1266,6 +1393,7 @@ mod tests {
                     },
                     active: true,
                     lines: screen.visible_lines(),
+                    selection: None,
                     cursor: None,
                 }],
             },
@@ -1304,6 +1432,7 @@ mod tests {
                     },
                     active: true,
                     lines: screen.visible_lines(),
+                    selection: None,
                     cursor: None,
                 }],
             },
@@ -1345,6 +1474,7 @@ mod tests {
                     },
                     active: true,
                     lines: screen.visible_lines(),
+                    selection: None,
                     cursor: None,
                 }],
             },
