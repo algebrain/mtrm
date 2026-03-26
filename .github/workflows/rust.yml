@@ -3,13 +3,17 @@ name: Test and Release
 on:
   push:
     branches: [ "main" ]
-    tags: [ "v*" ] # Запускать релиз при пуше тега, например v1.0.0
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   test-and-build:
     strategy:
+      fail-fast: false # Одна ОС не тормозит остальные
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         include:
@@ -27,32 +31,54 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v2 # Маст-хэв для ускорения Rust
+      with:
+        key: ${{ matrix.os }}-v1
+
     - name: Run tests
       run: cargo test --verbose
+
     - name: Build release
       run: cargo build --release --verbose
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact_name }}
         path: ${{ matrix.binary_path }}
+        if-no-files-found: error # На этом этапе лучше знать, если билд не создался
 
-  # НОВЫЙ БЛОК: Создание релиза
   create-release:
     needs: test-and-build
-    if: startsWith(github.ref, 'refs/tags/v') # Только если мы создали тег v...
+    # Запускаем только на тегах, если хотя бы одна работа в матрице была успешной
+    if: |
+      always() && 
+      startsWith(github.ref, 'refs/tags/v') && 
+      needs.test-and-build.result == 'success' || contains(needs.test-and-build.result, 'skipped')
+    
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+        continue-on-error: true # Если какой-то артефакт отсутствует, не падаем
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
+          # Ищем файлы рекурсивно во всех подпапках скачанных артефактов
           files: |
-            mtrm-linux/mtrm
-            mtrm-windows/mtrm.exe
-            mtrm-macos/mtrm
+            artifacts/mtrm-linux/mtrm
+            artifacts/mtrm-windows/mtrm.exe
+            artifacts/mtrm-macos/mtrm
+          fail_on_unmatched_files: false # Чтобы не падать, если одного из файлов нет
+          generate_release_notes: true
