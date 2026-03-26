@@ -7,6 +7,9 @@
 ```rust
 pub struct ScreenCell {
     pub text: String,
+    pub has_contents: bool,
+    pub is_wide: bool,
+    pub is_wide_continuation: bool,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
@@ -40,6 +43,7 @@ impl TerminalScreen {
 - принимает байты terminal output;
 - применяет их к экранному состоянию;
 - хранит видимые строки, курсор, атрибуты ячеек и scrollback;
+- различает обычные ячейки, wide-char ячейки и continuation cells;
 - дает безопасное представление экрана для следующих слоев.
 
 Эта библиотека не должна:
@@ -62,3 +66,5 @@ impl TerminalScreen {
 - resize не ломает экран и не теряет работоспособность;
 - изменение scrollback меняет видимую часть экрана;
 - базовые атрибуты ячеек доступны через `visible_lines()`.
+- gap cells видны как отдельные terminal cells даже при пустом `text`;
+- continuation-ячейки wide-character помечаются явно.

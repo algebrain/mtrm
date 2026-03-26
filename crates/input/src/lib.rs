@@ -25,6 +25,31 @@ fn matches_char(code: KeyCode, matcher: impl FnOnce(char) -> bool) -> bool {
     }
 }
 
+fn ctrl_char_byte(ch: char) -> Option<u8> {
+    if ch.is_ascii() {
+        let byte = ch as u8;
+        match byte {
+            b'@' | b' ' => Some(0x00),
+            b'a'..=b'z' => Some(byte - b'a' + 1),
+            b'A'..=b'Z' => Some(byte - b'A' + 1),
+            b'[' => Some(0x1b),
+            b'\\' => Some(0x1c),
+            b']' => Some(0x1d),
+            b'^' => Some(0x1e),
+            b'_' => Some(0x1f),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
+fn alt_char_bytes(ch: char) -> Vec<u8> {
+    let mut bytes = vec![0x1b];
+    bytes.extend_from_slice(ch.to_string().as_bytes());
+    bytes
+}
+
 pub fn map_key_event(event: KeyEvent) -> InputAction {
     map_key_event_with_keymap(event, &Keymap::default())
 }
@@ -42,6 +67,10 @@ pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputActio
             InputAction::Command(AppCommand::Clipboard(ClipboardCommand::CopySelection))
         } else if matches_char(event.code, |ch| keymap.matches_paste(ch)) {
             InputAction::Command(AppCommand::Clipboard(ClipboardCommand::PasteFromSystem))
+        } else if let KeyCode::Char(ch) = event.code {
+            ctrl_char_byte(ch)
+                .map(|byte| InputAction::PtyBytes(vec![byte]))
+                .unwrap_or(InputAction::Ignore)
         } else {
             InputAction::Ignore
         };
@@ -82,6 +111,7 @@ pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputActio
                 KeyCode::Down => InputAction::Command(AppCommand::Layout(
                     LayoutCommand::MoveFocus(FocusMoveDirection::Down),
                 )),
+                KeyCode::Char(ch) => InputAction::PtyBytes(alt_char_bytes(ch)),
                 _ => InputAction::Ignore,
             }
         };
@@ -101,6 +131,7 @@ pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputActio
             KeyCode::PageDown => {
                 InputAction::Command(AppCommand::Layout(LayoutCommand::ScrollDownPages(1)))
             }
+            KeyCode::Char(ch) => InputAction::PtyBytes(ch.to_string().into_bytes()),
             _ => InputAction::Ignore,
         };
     }
@@ -112,6 +143,8 @@ pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputActio
     if event.modifiers == (KeyModifiers::ALT | KeyModifiers::SHIFT) {
         return if matches_char(event.code, |ch| keymap.matches_quit(ch)) {
             InputAction::Command(AppCommand::Quit)
+        } else if let KeyCode::Char(ch) = event.code {
+            InputAction::PtyBytes(alt_char_bytes(ch))
         } else {
             InputAction::Ignore
         };
@@ -123,7 +156,7 @@ pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputActio
 
     match event.code {
         KeyCode::Char(ch) => InputAction::PtyBytes(ch.to_string().into_bytes()),
-        KeyCode::Enter => InputAction::PtyBytes(vec![b'\n']),
+        KeyCode::Enter => InputAction::PtyBytes(vec![b'\r']),
         KeyCode::Backspace => InputAction::PtyBytes(vec![0x08]),
         KeyCode::Tab => InputAction::PtyBytes(vec![b'\t']),
         KeyCode::Left => InputAction::PtyBytes(b"\x1b[D".to_vec()),
@@ -237,6 +270,18 @@ mod tests {
     }
 
     #[test]
+    fn maps_shift_printable_characters_to_utf8_bytes() {
+        assert_eq!(
+            map_key_event(key_event(KeyCode::Char('A'), KeyModifiers::SHIFT)),
+            InputAction::PtyBytes("A".as_bytes().to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::Char('Я'), KeyModifiers::SHIFT)),
+            InputAction::PtyBytes("Я".as_bytes().to_vec())
+        );
+    }
+
+    #[test]
     fn maps_alt_split_and_close_commands() {
         assert_eq!(
             map_key_event(key_event(KeyCode::Char('-'), KeyModifiers::ALT)),
@@ -277,6 +322,22 @@ mod tests {
     }
 
     #[test]
+    fn maps_alt_printable_characters_to_meta_prefixed_bytes_when_not_commands() {
+        assert_eq!(
+            map_key_event(key_event(KeyCode::Char('b'), KeyModifiers::ALT)),
+            InputAction::PtyBytes(vec![0x1b, b'b'])
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::Char('Б'), KeyModifiers::ALT)),
+            InputAction::PtyBytes({
+                let mut bytes = vec![0x1b];
+                bytes.extend_from_slice("Б".as_bytes());
+                bytes
+            })
+        );
+    }
+
+    #[test]
     fn maps_alt_shift_q_to_quit() {
         assert_eq!(
             map_key_event(key_event(
@@ -284,6 +345,28 @@ mod tests {
                 KeyModifiers::ALT | KeyModifiers::SHIFT
             )),
             InputAction::Command(AppCommand::Quit)
+        );
+    }
+
+    #[test]
+    fn maps_alt_shift_printable_characters_to_meta_prefixed_bytes_when_not_quit() {
+        assert_eq!(
+            map_key_event(key_event(
+                KeyCode::Char('B'),
+                KeyModifiers::ALT | KeyModifiers::SHIFT
+            )),
+            InputAction::PtyBytes(vec![0x1b, b'B'])
+        );
+        assert_eq!(
+            map_key_event(key_event(
+                KeyCode::Char('Я'),
+                KeyModifiers::ALT | KeyModifiers::SHIFT
+            )),
+            InputAction::PtyBytes({
+                let mut bytes = vec![0x1b];
+                bytes.extend_from_slice("Я".as_bytes());
+                bytes
+            })
         );
     }
 
@@ -354,6 +437,67 @@ mod tests {
     }
 
     #[test]
+    fn maps_ctrl_printable_characters_to_control_bytes_when_not_reserved() {
+        assert_eq!(
+            map_key_event(key_event(KeyCode::Char('a'), KeyModifiers::CONTROL)),
+            InputAction::PtyBytes(vec![0x01])
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::Char('z'), KeyModifiers::CONTROL)),
+            InputAction::PtyBytes(vec![0x1a])
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::Char('['), KeyModifiers::CONTROL)),
+            InputAction::PtyBytes(vec![0x1b])
+        );
+    }
+
+    #[test]
+    fn keymap_only_changes_reserved_command_combos_not_shift_printable_passthrough() {
+        let keymap = Keymap::from_toml_str(
+            r#"
+[commands]
+copy = ["λ"]
+paste = ["π"]
+interrupt = ["ι"]
+close_pane = ["κ"]
+new_tab = ["ν"]
+close_tab = ["τ"]
+quit = ["Ω"]
+previous_tab = [","]
+next_tab = ["."]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            map_key_event_with_keymap(key_event(KeyCode::Char('Я'), KeyModifiers::SHIFT), &keymap),
+            InputAction::PtyBytes("Я".as_bytes().to_vec())
+        );
+        assert_eq!(
+            map_key_event_with_keymap(
+                key_event(KeyCode::Char('Ω'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+                &keymap
+            ),
+            InputAction::Command(AppCommand::Quit)
+        );
+        assert_eq!(
+            map_key_event_with_keymap(
+                key_event(KeyCode::Char('B'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+                &keymap
+            ),
+            InputAction::PtyBytes(vec![0x1b, b'B'])
+        );
+        assert_eq!(
+            map_key_event_with_keymap(
+                key_event(KeyCode::Char('a'), KeyModifiers::CONTROL),
+                &keymap
+            ),
+            InputAction::PtyBytes(vec![0x01])
+        );
+    }
+
+    #[test]
     fn custom_keymap_changes_letter_bindings() {
         let keymap = Keymap::from_toml_str(
             "[commands]\ncopy=['λ']\npaste=['π']\ninterrupt=['ι']\nclose_pane=['κ']\nnew_tab=['ν']\nclose_tab=['χ']\nquit=['Ω']\nprevious_tab=['<']\nnext_tab=['>']\n",
@@ -390,10 +534,10 @@ mod tests {
     }
 
     #[test]
-    fn maps_enter_backspace_and_tab_to_control_bytes() {
+    fn maps_enter_backspace_and_tab_to_terminal_control_bytes() {
         assert_eq!(
             map_key_event(key_event(KeyCode::Enter, KeyModifiers::NONE)),
-            InputAction::PtyBytes(vec![b'\n'])
+            InputAction::PtyBytes(vec![b'\r'])
         );
         assert_eq!(
             map_key_event(key_event(KeyCode::Backspace, KeyModifiers::NONE)),
@@ -426,13 +570,9 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_events_are_ignored() {
+    fn unsupported_non_printable_events_are_ignored() {
         assert_eq!(
             map_key_event(key_event(KeyCode::Esc, KeyModifiers::NONE)),
-            InputAction::Ignore
-        );
-        assert_eq!(
-            map_key_event(key_event(KeyCode::Char('z'), KeyModifiers::SHIFT)),
             InputAction::Ignore
         );
     }

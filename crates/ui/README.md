@@ -50,6 +50,9 @@ let frame_view = FrameView {
                 cells: vec![
                     ScreenCell {
                         text: "p".to_owned(),
+                        has_contents: true,
+                        is_wide: false,
+                        is_wide_continuation: false,
                         bold: false,
                         italic: false,
                         underline: false,
@@ -71,6 +74,8 @@ let frame_view = FrameView {
 - каждое окно рисуется рамкой;
 - активное окно выделяется желтой рамкой и жирным шрифтом;
 - неактивные окна рисуются темно-серой рамкой;
-- содержимое окна рисуется по `PaneView.lines`;
+- содержимое окна рисуется не как обычный текстовый paragraph, а как terminal-cell grid по `PaneView.lines`;
+- перед записью pane content UI очищает content area панели, чтобы не оставлять артефакты старого кадра;
 - курсор активной панели рисуется отдельным контрастным инвертированным блоком поверх уже отрисованной панели по `PaneView.cursor`;
+- если курсор попадает на continuation-ячейку wide-character, UI нормализует его на ведущую ячейку символа;
 - `mtrm-ui` не читает живой PTY и не знает о терминальной эмуляции сверх уже подготовленного представления.

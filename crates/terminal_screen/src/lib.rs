@@ -3,6 +3,9 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenCell {
     pub text: String,
+    pub has_contents: bool,
+    pub is_wide: bool,
+    pub is_wide_continuation: bool,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
@@ -61,6 +64,9 @@ impl TerminalScreen {
                 let cell = screen.cell(row, col).expect("cell in visible bounds");
                 cells.push(ScreenCell {
                     text: cell.contents().to_owned(),
+                    has_contents: cell.has_contents(),
+                    is_wide: cell.is_wide(),
+                    is_wide_continuation: cell.is_wide_continuation(),
                     bold: cell.bold(),
                     italic: cell.italic(),
                     underline: cell.underline(),
@@ -85,6 +91,14 @@ impl TerminalScreen {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn bytes_with_gap(left: &str, gap_cols: u16, right: &str) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(left.as_bytes());
+        bytes.extend_from_slice(format!("\x1b[{}C", gap_cols).as_bytes());
+        bytes.extend_from_slice(right.as_bytes());
+        bytes
+    }
 
     fn first_row_text(screen: &TerminalScreen) -> String {
         screen.visible_rows().into_iter().next().unwrap_or_default()
@@ -132,12 +146,18 @@ mod tests {
 
         let first_line = screen.visible_lines().remove(0);
         assert_eq!(first_line.cells[0].text, "A");
+        assert!(first_line.cells[0].has_contents);
+        assert!(!first_line.cells[0].is_wide);
+        assert!(!first_line.cells[0].is_wide_continuation);
         assert!(first_line.cells[0].bold);
         assert_eq!(first_line.cells[1].text, "B");
+        assert!(first_line.cells[1].has_contents);
         assert!(first_line.cells[1].italic);
         assert_eq!(first_line.cells[2].text, "C");
+        assert!(first_line.cells[2].has_contents);
         assert!(first_line.cells[2].underline);
         assert_eq!(first_line.cells[3].text, "D");
+        assert!(first_line.cells[3].has_contents);
         assert!(first_line.cells[3].inverse);
     }
 
@@ -152,5 +172,49 @@ mod tests {
 
         assert_ne!(bottom, scrolled);
         assert_eq!(screen.scrollback(), 2);
+    }
+
+    #[test]
+    fn visible_lines_expose_gap_cells_even_when_they_have_no_text_contents() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+        screen.process_bytes(&bytes_with_gap("я", 2, "б"));
+
+        let rows = screen.visible_rows();
+        let lines = screen.visible_lines();
+
+        assert!(rows[0].starts_with("я  б"));
+        assert_eq!(lines[0].cells[0].text, "я");
+        assert!(lines[0].cells[0].has_contents);
+        assert_eq!(lines[0].cells[1].text, "");
+        assert!(!lines[0].cells[1].has_contents);
+        assert!(!lines[0].cells[1].is_wide_continuation);
+        assert_eq!(lines[0].cells[2].text, "");
+        assert!(!lines[0].cells[2].has_contents);
+        assert!(!lines[0].cells[2].is_wide_continuation);
+        assert_eq!(lines[0].cells[3].text, "б");
+        assert!(lines[0].cells[3].has_contents);
+    }
+
+    #[test]
+    fn visible_lines_mark_wide_character_continuation_cells() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+        screen.process_bytes("界a".as_bytes());
+
+        let line = screen.visible_lines().remove(0);
+
+        assert_eq!(line.cells[0].text, "界");
+        assert!(line.cells[0].has_contents);
+        assert!(line.cells[0].is_wide);
+        assert!(!line.cells[0].is_wide_continuation);
+
+        assert_eq!(line.cells[1].text, "");
+        assert!(!line.cells[1].has_contents);
+        assert!(!line.cells[1].is_wide);
+        assert!(line.cells[1].is_wide_continuation);
+
+        assert_eq!(line.cells[2].text, "a");
+        assert!(line.cells[2].has_contents);
+        assert!(!line.cells[2].is_wide);
+        assert!(!line.cells[2].is_wide_continuation);
     }
 }

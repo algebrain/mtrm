@@ -9,8 +9,8 @@ use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::layout::Rect as TuiRect;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Tabs, Widget};
 
 const TAB_BAR_HEIGHT: u16 = 1;
 
@@ -108,58 +108,74 @@ fn render_pane(frame: &mut ratatui::Frame<'_>, pane: &PaneView, full_area: TuiRe
         .title(pane.title.clone())
         .borders(Borders::ALL)
         .border_style(border_style);
-    let paragraph = Paragraph::new(Text::from(render_lines(pane))).block(block);
-    frame.render_widget(paragraph, area);
+    block.render(area, frame.buffer_mut());
+    render_pane_content(frame, pane, area);
     render_cursor_overlay(frame, pane, area);
 }
 
-fn render_lines(pane: &PaneView) -> Vec<Line<'static>> {
-    pane.lines
-        .iter()
-        .enumerate()
-        .map(|(row_index, line)| {
-            let spans: Vec<Span<'static>> = line
-                .cells
-                .iter()
-                .enumerate()
-                .map(|(col_index, cell)| {
-                    let mut style = Style::default();
-                    if cell.bold {
-                        style = style.add_modifier(Modifier::BOLD);
-                    }
-                    if cell.italic {
-                        style = style.add_modifier(Modifier::ITALIC);
-                    }
-                    if cell.underline {
-                        style = style.add_modifier(Modifier::UNDERLINED);
-                    }
-                    if cell.inverse {
-                        style = style
-                            .fg(Color::Black)
-                            .bg(Color::Gray)
-                            .add_modifier(Modifier::REVERSED);
-                    }
+fn render_pane_content(
+    frame: &mut ratatui::Frame<'_>,
+    pane: &PaneView,
+    area: TuiRect,
+) {
+    let content_x = area.x.saturating_add(1);
+    let content_y = area.y.saturating_add(1);
+    let content_width = area.width.saturating_sub(2);
+    let content_height = area.height.saturating_sub(2);
+    if content_width == 0 || content_height == 0 {
+        return;
+    }
 
-                    if pane.active && pane.cursor == Some((row_index as u16, col_index as u16)) {
-                        let has_visible_text = !cell.text.trim().is_empty();
-                        let cursor_bg = Color::White;
-                        let cursor_fg = if has_visible_text {
-                            Color::Black
-                        } else {
-                            Color::Blue
-                        };
-                        style = style
-                            .bg(cursor_bg)
-                            .fg(cursor_fg)
-                            .add_modifier(Modifier::BOLD | Modifier::REVERSED);
-                    }
+    let buffer = frame.buffer_mut();
 
-                    Span::styled(cell.text.clone(), style)
-                })
-                .collect();
-            Line::from(spans)
-        })
-        .collect()
+    for dy in 0..content_height {
+        for dx in 0..content_width {
+            let cell = &mut buffer[(content_x.saturating_add(dx), content_y.saturating_add(dy))];
+            cell.set_symbol(" ");
+            cell.set_style(Style::default());
+        }
+    }
+
+    for (row_index, line) in pane.lines.iter().enumerate() {
+        let row = row_index as u16;
+        if row >= content_height {
+            break;
+        }
+
+        for (col_index, cell) in line.cells.iter().enumerate() {
+            let col = col_index as u16;
+            if col >= content_width {
+                break;
+            }
+
+            let symbol = if cell.has_contents {
+                cell.text.as_str()
+            } else {
+                " "
+            };
+
+            let mut style = Style::default();
+            if cell.bold {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            if cell.italic {
+                style = style.add_modifier(Modifier::ITALIC);
+            }
+            if cell.underline {
+                style = style.add_modifier(Modifier::UNDERLINED);
+            }
+            if cell.inverse {
+                style = style
+                    .fg(Color::Black)
+                    .bg(Color::Gray)
+                    .add_modifier(Modifier::REVERSED);
+            }
+
+            let buffer_cell = &mut buffer[(content_x.saturating_add(col), content_y.saturating_add(row))];
+            buffer_cell.set_symbol(symbol);
+            buffer_cell.set_style(style);
+        }
+    }
 }
 
 fn shift_and_clip_rect(rect: Rect, full_area: TuiRect) -> TuiRect {
@@ -185,7 +201,7 @@ fn render_cursor_overlay(frame: &mut ratatui::Frame<'_>, pane: &PaneView, area: 
         return;
     }
 
-    let Some((row, col)) = pane.cursor else {
+    let Some((row, mut col)) = pane.cursor else {
         return;
     };
 
@@ -198,6 +214,15 @@ fn render_cursor_overlay(frame: &mut ratatui::Frame<'_>, pane: &PaneView, area: 
     }
     if row >= content_height || col >= content_width {
         return;
+    }
+
+    if pane
+        .lines
+        .get(row as usize)
+        .and_then(|line| line.cells.get(col as usize))
+        .is_some_and(|cell| cell.is_wide_continuation)
+    {
+        col = col.saturating_sub(1);
     }
 
     let x = content_x.saturating_add(col);
@@ -222,12 +247,58 @@ fn render_cursor_overlay(frame: &mut ratatui::Frame<'_>, pane: &PaneView, area: 
 mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
+    use mtrm_terminal_screen::TerminalScreen;
 
     fn render(frame_view: &FrameView, width: u16, height: u16) -> Terminal<TestBackend> {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         render_frame(&mut terminal, frame_view).unwrap();
         terminal
+    }
+
+    fn bytes_with_gap(left: &str, gap_cols: u16, right: &str) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(left.as_bytes());
+        bytes.extend_from_slice(format!("\x1b[{}C", gap_cols).as_bytes());
+        bytes.extend_from_slice(right.as_bytes());
+        bytes
+    }
+
+    fn pane_from_screen(screen: &TerminalScreen) -> PaneView {
+        PaneView {
+            id: PaneId::new(1),
+            title: "pane".to_owned(),
+            area: Rect {
+                x: 0,
+                y: 0,
+                width: 20,
+                height: 5,
+            },
+            active: true,
+            lines: screen.visible_lines(),
+            cursor: Some(screen.cursor_position()),
+        }
+    }
+
+    fn pane_from_screen_at(
+        pane_id: u64,
+        title: &str,
+        area: Rect,
+        active: bool,
+        screen: &TerminalScreen,
+    ) -> PaneView {
+        PaneView {
+            id: PaneId::new(pane_id),
+            title: title.to_owned(),
+            area,
+            active,
+            lines: screen.visible_lines(),
+            cursor: if active {
+                Some(screen.cursor_position())
+            } else {
+                None
+            },
+        }
     }
 
     #[test]
@@ -254,6 +325,9 @@ mod tests {
                             .chars()
                             .map(|ch| mtrm_terminal_screen::ScreenCell {
                                 text: ch.to_string(),
+                                has_contents: true,
+                                is_wide: false,
+                                is_wide_continuation: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -404,6 +478,9 @@ mod tests {
                             .chars()
                             .map(|ch| mtrm_terminal_screen::ScreenCell {
                                 text: ch.to_string(),
+                                has_contents: true,
+                                is_wide: false,
+                                is_wide_continuation: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -448,6 +525,9 @@ mod tests {
                             .chars()
                             .map(|ch| mtrm_terminal_screen::ScreenCell {
                                 text: ch.to_string(),
+                                has_contents: true,
+                                is_wide: false,
+                                is_wide_continuation: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -491,6 +571,9 @@ mod tests {
                         cells: vec![
                             mtrm_terminal_screen::ScreenCell {
                                 text: "a".to_owned(),
+                                has_contents: true,
+                                is_wide: false,
+                                is_wide_continuation: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -498,6 +581,9 @@ mod tests {
                             },
                             mtrm_terminal_screen::ScreenCell {
                                 text: " ".to_owned(),
+                                has_contents: true,
+                                is_wide: false,
+                                is_wide_continuation: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -541,6 +627,9 @@ mod tests {
                             .chars()
                             .map(|ch| mtrm_terminal_screen::ScreenCell {
                                 text: ch.to_string(),
+                                has_contents: true,
+                                is_wide: false,
+                                is_wide_continuation: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -585,6 +674,9 @@ mod tests {
                             .chars()
                             .map(|ch| mtrm_terminal_screen::ScreenCell {
                                 text: ch.to_string(),
+                                has_contents: true,
+                                is_wide: false,
+                                is_wide_continuation: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -602,5 +694,405 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let cell = &buffer[(2, 2)];
         assert_ne!(cell.style().bg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn renders_terminal_cell_gaps_between_cyrillic_characters() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+        screen.process_bytes(&bytes_with_gap("я", 2, "б"));
+
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![pane_from_screen(&screen)],
+            },
+            30,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        let row: String = (1..8).map(|x| buffer[(x, 2)].symbol()).collect();
+
+        assert!(row.starts_with("я  б"), "expected visible gap cells, got {row:?}");
+    }
+
+    #[test]
+    fn cursor_respects_terminal_cell_gaps() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+        screen.process_bytes(&bytes_with_gap("я", 2, "б"));
+
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![pane_from_screen(&screen)],
+            },
+            30,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(4, 2)].symbol(), "б");
+        assert_eq!(buffer[(5, 2)].style().bg, Some(Color::White));
+    }
+
+    #[test]
+    fn redraw_clears_previous_panel_content() {
+        let backend = TestBackend::new(30, 8);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut first = TerminalScreen::new(3, 10, 0);
+        first.process_bytes(b"abcdef");
+        render_frame(
+            &mut terminal,
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![pane_from_screen(&first)],
+            },
+        )
+        .unwrap();
+
+        let mut second = TerminalScreen::new(3, 10, 0);
+        second.process_bytes(b"ab");
+        render_frame(
+            &mut terminal,
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![pane_from_screen(&second)],
+            },
+        )
+        .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let row: String = (1..8).map(|x| buffer[(x, 2)].symbol()).collect();
+
+        assert!(row.starts_with("ab     "), "stale content remained in row: {row:?}");
+    }
+
+    #[test]
+    fn redraw_clears_trailing_text_in_left_pane_after_split_frame_change() {
+        let backend = TestBackend::new(40, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut left_first = TerminalScreen::new(4, 16, 0);
+        left_first.process_bytes(b"left pane had a much longer line");
+        let right_empty = TerminalScreen::new(4, 16, 0);
+        render_frame(
+            &mut terminal,
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![
+                    pane_from_screen_at(
+                        1,
+                        "left",
+                        Rect {
+                            x: 0,
+                            y: 0,
+                            width: 20,
+                            height: 6,
+                        },
+                        true,
+                        &left_first,
+                    ),
+                    pane_from_screen_at(
+                        2,
+                        "right",
+                        Rect {
+                            x: 20,
+                            y: 0,
+                            width: 20,
+                            height: 6,
+                        },
+                        false,
+                        &right_empty,
+                    ),
+                ],
+            },
+        )
+        .unwrap();
+
+        let mut left_second = TerminalScreen::new(4, 16, 0);
+        left_second.process_bytes(b"short");
+        render_frame(
+            &mut terminal,
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![
+                    pane_from_screen_at(
+                        1,
+                        "left",
+                        Rect {
+                            x: 0,
+                            y: 0,
+                            width: 20,
+                            height: 6,
+                        },
+                        true,
+                        &left_second,
+                    ),
+                    pane_from_screen_at(
+                        2,
+                        "right",
+                        Rect {
+                            x: 20,
+                            y: 0,
+                            width: 20,
+                            height: 6,
+                        },
+                        false,
+                        &right_empty,
+                    ),
+                ],
+            },
+        )
+        .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let left_row: String = (1..18).map(|x| buffer[(x, 2)].symbol()).collect();
+
+        assert!(
+            left_row.starts_with("short"),
+            "updated left pane prefix missing: {left_row:?}"
+        );
+        assert!(
+            !left_row.contains("much longer"),
+            "stale left-pane text remained after redraw: {left_row:?}"
+        );
+    }
+
+    #[test]
+    fn redraw_does_not_leak_old_left_pane_text_into_right_pane() {
+        let backend = TestBackend::new(40, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut left_first = TerminalScreen::new(4, 16, 0);
+        left_first.process_bytes(b"left stale text");
+        let mut right_first = TerminalScreen::new(4, 16, 0);
+        right_first.process_bytes(b"right");
+        render_frame(
+            &mut terminal,
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![
+                    pane_from_screen_at(
+                        1,
+                        "left",
+                        Rect {
+                            x: 0,
+                            y: 0,
+                            width: 20,
+                            height: 6,
+                        },
+                        true,
+                        &left_first,
+                    ),
+                    pane_from_screen_at(
+                        2,
+                        "right",
+                        Rect {
+                            x: 20,
+                            y: 0,
+                            width: 20,
+                            height: 6,
+                        },
+                        false,
+                        &right_first,
+                    ),
+                ],
+            },
+        )
+        .unwrap();
+
+        let left_second = TerminalScreen::new(4, 16, 0);
+        let mut right_second = TerminalScreen::new(4, 16, 0);
+        right_second.process_bytes(b"ok");
+        render_frame(
+            &mut terminal,
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![
+                    pane_from_screen_at(
+                        1,
+                        "left",
+                        Rect {
+                            x: 0,
+                            y: 0,
+                            width: 20,
+                            height: 6,
+                        },
+                        true,
+                        &left_second,
+                    ),
+                    pane_from_screen_at(
+                        2,
+                        "right",
+                        Rect {
+                            x: 20,
+                            y: 0,
+                            width: 20,
+                            height: 6,
+                        },
+                        false,
+                        &right_second,
+                    ),
+                ],
+            },
+        )
+        .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let right_row: String = (21..38).map(|x| buffer[(x, 2)].symbol()).collect();
+
+        assert!(right_row.starts_with("ok"), "right pane lost fresh text: {right_row:?}");
+        assert!(
+            !right_row.contains("left"),
+            "left-pane text leaked into right pane row: {right_row:?}"
+        );
+    }
+
+    #[test]
+    fn redraw_replaces_cyrillic_line_without_leaving_old_suffix() {
+        let backend = TestBackend::new(30, 8);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut first = TerminalScreen::new(3, 10, 0);
+        first.process_bytes("я запускаю".as_bytes());
+        render_frame(
+            &mut terminal,
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![pane_from_screen(&first)],
+            },
+        )
+        .unwrap();
+
+        let mut second = TerminalScreen::new(3, 10, 0);
+        second.process_bytes("я".as_bytes());
+        render_frame(
+            &mut terminal,
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![pane_from_screen(&second)],
+            },
+        )
+        .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let row: String = (1..8).map(|x| buffer[(x, 2)].symbol()).collect();
+
+        assert!(row.starts_with("я"), "new cyrillic prefix missing: {row:?}");
+        assert!(
+            !row.contains("запускаю"),
+            "old cyrillic suffix remained after redraw: {row:?}"
+        );
+    }
+
+    #[test]
+    fn cursor_on_wide_char_continuation_is_drawn_on_leading_cell() {
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![PaneView {
+                    id: PaneId::new(1),
+                    title: "pane".to_owned(),
+                    area: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 12,
+                        height: 5,
+                    },
+                    active: true,
+                    lines: vec![ScreenLine {
+                        cells: vec![
+                            mtrm_terminal_screen::ScreenCell {
+                                text: "界".to_owned(),
+                                has_contents: true,
+                                is_wide: true,
+                                is_wide_continuation: false,
+                                bold: false,
+                                italic: false,
+                                underline: false,
+                                inverse: false,
+                            },
+                            mtrm_terminal_screen::ScreenCell {
+                                text: "".to_owned(),
+                                has_contents: false,
+                                is_wide: false,
+                                is_wide_continuation: true,
+                                bold: false,
+                                italic: false,
+                                underline: false,
+                                inverse: false,
+                            },
+                            mtrm_terminal_screen::ScreenCell {
+                                text: "a".to_owned(),
+                                has_contents: true,
+                                is_wide: false,
+                                is_wide_continuation: false,
+                                bold: false,
+                                italic: false,
+                                underline: false,
+                                inverse: false,
+                            },
+                        ],
+                    }],
+                    cursor: Some((0, 1)),
+                }],
+            },
+            20,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        let leading = &buffer[(1, 2)];
+        let continuation = &buffer[(2, 2)];
+
+        assert_eq!(leading.symbol(), "界");
+        assert_eq!(leading.style().bg, Some(Color::White));
+        assert_eq!(continuation.symbol(), " ");
+        assert_ne!(continuation.style().bg, Some(Color::White));
     }
 }
