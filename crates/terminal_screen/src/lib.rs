@@ -16,6 +16,7 @@ pub struct ScreenCell {
     pub is_wide_continuation: bool,
     pub fg: ScreenColor,
     pub bg: ScreenColor,
+    pub dim: bool,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
@@ -79,6 +80,7 @@ impl TerminalScreen {
                     is_wide_continuation: cell.is_wide_continuation(),
                     fg: screen_color(cell.fgcolor()),
                     bg: screen_color(cell.bgcolor()),
+                    dim: cell.dim(),
                     bold: cell.bold(),
                     italic: cell.italic(),
                     underline: cell.underline(),
@@ -171,6 +173,7 @@ mod tests {
         assert!(!first_line.cells[0].is_wide_continuation);
         assert_eq!(first_line.cells[0].fg, ScreenColor::Default);
         assert_eq!(first_line.cells[0].bg, ScreenColor::Default);
+        assert!(!first_line.cells[0].dim);
         assert!(first_line.cells[0].bold);
         assert_eq!(first_line.cells[1].text, "B");
         assert!(first_line.cells[1].has_contents);
@@ -251,4 +254,16 @@ mod tests {
         assert_eq!(line.cells[0].fg, ScreenColor::Indexed(1));
         assert_eq!(line.cells[0].bg, ScreenColor::Indexed(7));
     }
+
+    #[test]
+    fn visible_lines_expose_dim_attribute() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+        screen.process_bytes(b"\x1b[2mA\x1b[m");
+
+        let line = screen.visible_lines().remove(0);
+
+        assert_eq!(line.cells[0].text, "A");
+        assert!(line.cells[0].dim);
+    }
+
 }

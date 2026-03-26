@@ -17,6 +17,8 @@ use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use thiserror::Error;
 
 const MAX_READ_BUFFER_BYTES: usize = 65_536;
+const TERM_PROGRAM_NAME: &str = "mtrm";
+const COLOR_TERM_HINT: &str = "truecolor";
 
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,6 +75,8 @@ impl ShellProcess {
             command.arg(arg);
         }
         command.cwd(&config.initial_cwd);
+        command.env("TERM_PROGRAM", TERM_PROGRAM_NAME);
+        command.env("COLORTERM", COLOR_TERM_HINT);
 
         let child = pair
             .slave

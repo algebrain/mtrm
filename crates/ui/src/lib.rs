@@ -164,6 +164,9 @@ fn render_pane_content(
             if cell.bold {
                 style = style.add_modifier(Modifier::BOLD);
             }
+            if cell.dim {
+                style = style.add_modifier(Modifier::DIM);
+            }
             if cell.italic {
                 style = style.add_modifier(Modifier::ITALIC);
             }
@@ -355,6 +358,7 @@ mod tests {
                                 is_wide_continuation: false,
                                 fg: ScreenColor::Default,
                                 bg: ScreenColor::Default,
+                                dim: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -510,6 +514,7 @@ mod tests {
                                 is_wide_continuation: false,
                                 fg: ScreenColor::Default,
                                 bg: ScreenColor::Default,
+                                dim: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -559,6 +564,7 @@ mod tests {
                                 is_wide_continuation: false,
                                 fg: ScreenColor::Default,
                                 bg: ScreenColor::Default,
+                                dim: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -607,6 +613,7 @@ mod tests {
                                 is_wide_continuation: false,
                                 fg: ScreenColor::Default,
                                 bg: ScreenColor::Default,
+                                dim: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -619,6 +626,7 @@ mod tests {
                                 is_wide_continuation: false,
                                 fg: ScreenColor::Default,
                                 bg: ScreenColor::Default,
+                                dim: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -667,6 +675,7 @@ mod tests {
                                 is_wide_continuation: false,
                                 fg: ScreenColor::Default,
                                 bg: ScreenColor::Default,
+                                dim: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -716,6 +725,7 @@ mod tests {
                                 is_wide_continuation: false,
                                 fg: ScreenColor::Default,
                                 bg: ScreenColor::Default,
+                                dim: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -1093,6 +1103,7 @@ mod tests {
                                 is_wide_continuation: false,
                                 fg: ScreenColor::Default,
                                 bg: ScreenColor::Default,
+                                dim: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -1105,6 +1116,7 @@ mod tests {
                                 is_wide_continuation: true,
                                 fg: ScreenColor::Default,
                                 bg: ScreenColor::Default,
+                                dim: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -1117,6 +1129,7 @@ mod tests {
                                 is_wide_continuation: false,
                                 fg: ScreenColor::Default,
                                 bg: ScreenColor::Default,
+                                dim: false,
                                 bold: false,
                                 italic: false,
                                 underline: false,
@@ -1168,6 +1181,7 @@ mod tests {
                             is_wide_continuation: false,
                             fg: ScreenColor::Indexed(1),
                             bg: ScreenColor::Indexed(7),
+                            dim: false,
                             bold: false,
                             italic: false,
                             underline: false,
@@ -1187,5 +1201,166 @@ mod tests {
         assert_eq!(cell.symbol(), "x");
         assert_eq!(cell.style().fg, Some(Color::Indexed(1)));
         assert_eq!(cell.style().bg, Some(Color::Indexed(7)));
+    }
+
+    #[test]
+    fn renders_ansi_background_color_end_to_end_from_terminal_screen() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+        screen.process_bytes(b"\x1b[31;47mAB\x1b[m");
+
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![PaneView {
+                    id: PaneId::new(1),
+                    title: "pane".to_owned(),
+                    area: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 12,
+                        height: 5,
+                    },
+                    active: true,
+                    lines: screen.visible_lines(),
+                    cursor: None,
+                }],
+            },
+            20,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        let first = &buffer[(1, 2)];
+        let second = &buffer[(2, 2)];
+
+        assert_eq!(first.symbol(), "A");
+        assert_eq!(first.style().bg, Some(Color::Indexed(7)));
+        assert_eq!(second.symbol(), "B");
+        assert_eq!(second.style().bg, Some(Color::Indexed(7)));
+    }
+
+    #[test]
+    fn inverse_ansi_swaps_terminal_cell_colors_end_to_end() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+        screen.process_bytes(b"\x1b[31;47;7mA\x1b[m");
+
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![PaneView {
+                    id: PaneId::new(1),
+                    title: "pane".to_owned(),
+                    area: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 12,
+                        height: 5,
+                    },
+                    active: true,
+                    lines: screen.visible_lines(),
+                    cursor: None,
+                }],
+            },
+            20,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        let cell = &buffer[(1, 2)];
+
+        assert_eq!(cell.symbol(), "A");
+        assert_eq!(cell.style().fg, Some(Color::Indexed(7)));
+        assert_eq!(cell.style().bg, Some(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn renders_ansi_dim_modifier_end_to_end_from_terminal_screen() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+        screen.process_bytes(b"\x1b[2mA\x1b[m");
+
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![PaneView {
+                    id: PaneId::new(1),
+                    title: "pane".to_owned(),
+                    area: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 12,
+                        height: 5,
+                    },
+                    active: true,
+                    lines: screen.visible_lines(),
+                    cursor: None,
+                }],
+            },
+            20,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        let cell = &buffer[(1, 2)];
+
+        assert_eq!(cell.symbol(), "A");
+        assert!(
+            cell.style().add_modifier.contains(Modifier::DIM),
+            "expected DIM modifier, got {:?}",
+            cell.style()
+        );
+    }
+
+    #[test]
+    fn renders_ansi_dimmed_background_highlight_end_to_end() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+        screen.process_bytes(b"\x1b[2;100mA\x1b[m");
+
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![PaneView {
+                    id: PaneId::new(1),
+                    title: "pane".to_owned(),
+                    area: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 12,
+                        height: 5,
+                    },
+                    active: true,
+                    lines: screen.visible_lines(),
+                    cursor: None,
+                }],
+            },
+            20,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        let cell = &buffer[(1, 2)];
+
+        assert_eq!(cell.symbol(), "A");
+        assert_eq!(cell.style().bg, Some(Color::Indexed(8)));
+        assert!(
+            cell.style().add_modifier.contains(Modifier::DIM),
+            "expected DIM modifier with background highlight, got {:?}",
+            cell.style()
+        );
     }
 }

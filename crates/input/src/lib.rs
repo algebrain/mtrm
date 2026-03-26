@@ -159,6 +159,7 @@ pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputActio
         KeyCode::Enter => InputAction::PtyBytes(vec![b'\r']),
         KeyCode::Backspace => InputAction::PtyBytes(vec![0x08]),
         KeyCode::Tab => InputAction::PtyBytes(vec![b'\t']),
+        KeyCode::Esc => InputAction::PtyBytes(vec![0x1b]),
         KeyCode::Left => InputAction::PtyBytes(b"\x1b[D".to_vec()),
         KeyCode::Right => InputAction::PtyBytes(b"\x1b[C".to_vec()),
         KeyCode::Up => InputAction::PtyBytes(b"\x1b[A".to_vec()),
@@ -534,7 +535,7 @@ next_tab = ["."]
     }
 
     #[test]
-    fn maps_enter_backspace_and_tab_to_terminal_control_bytes() {
+    fn maps_enter_backspace_tab_and_escape_to_terminal_control_bytes() {
         assert_eq!(
             map_key_event(key_event(KeyCode::Enter, KeyModifiers::NONE)),
             InputAction::PtyBytes(vec![b'\r'])
@@ -546,6 +547,10 @@ next_tab = ["."]
         assert_eq!(
             map_key_event(key_event(KeyCode::Tab, KeyModifiers::NONE)),
             InputAction::PtyBytes(vec![b'\t'])
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::Esc, KeyModifiers::NONE)),
+            InputAction::PtyBytes(vec![0x1b])
         );
     }
 
@@ -571,9 +576,6 @@ next_tab = ["."]
 
     #[test]
     fn unsupported_non_printable_events_are_ignored() {
-        assert_eq!(
-            map_key_event(key_event(KeyCode::Esc, KeyModifiers::NONE)),
-            InputAction::Ignore
-        );
+        assert_eq!(map_key_event(key_event(KeyCode::F(1), KeyModifiers::NONE)), InputAction::Ignore);
     }
 }

@@ -534,6 +534,20 @@ mod tests {
         )))
     }
 
+    fn with_env_var_removed<T>(name: &str, f: impl FnOnce() -> T) -> T {
+        let previous = std::env::var_os(name);
+        unsafe {
+            std::env::remove_var(name);
+        }
+        let result = f();
+        if let Some(previous) = previous {
+            unsafe {
+                std::env::set_var(name, previous);
+            }
+        }
+        result
+    }
+
     #[test]
     fn new_creates_single_tab_with_single_pane() {
         let temp = tempdir().unwrap();
@@ -852,5 +866,57 @@ mod tests {
                     .unwrap_or(false)
         });
         assert!(reset);
+    }
+
+    #[test]
+    fn active_pane_shell_receives_truecolor_hint_env() {
+        let temp = tempdir().unwrap();
+        let has_truecolor_hint = with_env_var_removed("COLORTERM", || {
+            let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+
+            manager
+                .write_to_active_pane(b"printf '__COLORTERM__%s\\n' \"${COLORTERM:-missing}\"\n")
+                .unwrap();
+
+            wait_until(Duration::from_secs(3), || {
+                manager.refresh_all_panes().unwrap_or(false)
+                    && manager
+                        .active_pane_text()
+                        .map(|text| text.contains("__COLORTERM__truecolor"))
+                        .unwrap_or(false)
+            })
+        });
+
+        assert!(
+            has_truecolor_hint,
+            "interactive apps inside mtrm should receive COLORTERM=truecolor so they can enable richer terminal styling"
+        );
+    }
+
+    #[test]
+    fn active_pane_shell_receives_terminal_program_identity() {
+        let temp = tempdir().unwrap();
+        let has_program_identity = with_env_var_removed("TERM_PROGRAM", || {
+            let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+
+            manager
+                .write_to_active_pane(
+                    b"printf '__TERM_PROGRAM__%s\\n' \"${TERM_PROGRAM:-missing}\"\n",
+                )
+                .unwrap();
+
+            wait_until(Duration::from_secs(3), || {
+                manager.refresh_all_panes().unwrap_or(false)
+                    && manager
+                        .active_pane_text()
+                        .map(|text| text.contains("__TERM_PROGRAM__mtrm"))
+                        .unwrap_or(false)
+            })
+        });
+
+        assert!(
+            has_program_identity,
+            "interactive apps inside mtrm should be able to detect that they are running under mtrm via TERM_PROGRAM=mtrm"
+        );
     }
 }
