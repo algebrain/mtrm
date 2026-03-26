@@ -2,6 +2,20 @@
 name = "mtrm"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+description = "A local terminal workspace manager with tabs, splits, and persistent layout"
+repository = "https://github.com/algebrain/mtrm"
+homepage = "https://github.com/algebrain/mtrm"
+
+[package.metadata.deb]
+name = "mtrm"
+section = "utils"
+priority = "optional"
+maintainer = "algebrain"
+depends = "$auto"
+extended-description = """\
+mtrm is a local terminal workspace manager focused on tabs, pane splits,
+keyboard-driven control, and persisted layout."""
 
 [dependencies]
 crossterm = "0.28"

@@ -20,6 +20,8 @@ jobs:
           - os: ubuntu-latest
             artifact_name: mtrm-linux
             binary_path: target/release/mtrm
+            deb_artifact_name: mtrm-linux-deb
+            deb_path: target/debian/mtrm.deb
           - os: windows-latest
             artifact_name: mtrm-windows
             binary_path: target/release/mtrm.exe
@@ -46,12 +48,28 @@ jobs:
     - name: Build release
       run: cargo build --release --verbose
 
+    - name: Install cargo-deb
+      if: matrix.os == 'ubuntu-latest'
+      run: cargo install cargo-deb --locked
+
+    - name: Build Debian package
+      if: matrix.os == 'ubuntu-latest'
+      run: cargo deb -p mtrm --no-build --output ${{ matrix.deb_path }}
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact_name }}
         path: ${{ matrix.binary_path }}
         if-no-files-found: error # На этом этапе лучше знать, если билд не создался
+
+    - name: Upload Debian package
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.deb_artifact_name }}
+        path: ${{ matrix.deb_path }}
+        if-no-files-found: error
 
   create-release:
     needs: test-and-build
@@ -73,7 +91,7 @@ jobs:
         id: artifacts
         shell: bash
         run: |
-          if [ -f artifacts/mtrm-linux/mtrm ] || [ -f artifacts/mtrm-windows/mtrm.exe ] || [ -f artifacts/mtrm-macos/mtrm ]; then
+          if [ -f artifacts/mtrm-linux/mtrm ] || [ -f artifacts/mtrm-linux-deb/mtrm.deb ] || [ -f artifacts/mtrm-windows/mtrm.exe ] || [ -f artifacts/mtrm-macos/mtrm ]; then
             echo "has_files=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_files=false" >> "$GITHUB_OUTPUT"
@@ -86,6 +104,7 @@ jobs:
           # Ищем файлы рекурсивно во всех подпапках скачанных артефактов
           files: |
             artifacts/mtrm-linux/mtrm
+            artifacts/mtrm-linux-deb/mtrm.deb
             artifacts/mtrm-windows/mtrm.exe
             artifacts/mtrm-macos/mtrm
           fail_on_unmatched_files: false # Чтобы не падать, если одного из файлов нет
