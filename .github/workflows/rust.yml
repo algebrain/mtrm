@@ -55,11 +55,8 @@ jobs:
 
   create-release:
     needs: test-and-build
-    # Запускаем только на тегах, если хотя бы одна работа в матрице была успешной
-    if: |
-      always() && 
-      startsWith(github.ref, 'refs/tags/v') && 
-      needs.test-and-build.result == 'success' || contains(needs.test-and-build.result, 'skipped')
+    # На теге всегда пытаемся собрать релиз из тех артефактов, которые реально доехали.
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') }}
     
     runs-on: ubuntu-latest
     permissions:
@@ -72,7 +69,18 @@ jobs:
           path: ./artifacts
         continue-on-error: true # Если какой-то артефакт отсутствует, не падаем
 
+      - name: Check downloaded artifacts
+        id: artifacts
+        shell: bash
+        run: |
+          if [ -f artifacts/mtrm-linux/mtrm ] || [ -f artifacts/mtrm-windows/mtrm.exe ] || [ -f artifacts/mtrm-macos/mtrm ]; then
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Release
+        if: steps.artifacts.outputs.has_files == 'true'
         uses: softprops/action-gh-release@v2
         with:
           # Ищем файлы рекурсивно во всех подпапках скачанных артефактов
