@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crossterm::ExecutableCommand;
-use crossterm::event::{self, Event, KeyEvent};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
@@ -66,6 +66,10 @@ impl App {
         event: KeyEvent,
         clipboard: &mut dyn ClipboardBackend,
     ) -> Result<(), AppError> {
+        if self.handle_terminal_navigation_key(event)? {
+            return Ok(());
+        }
+
         match map_key_event_with_keymap(event, &self.keymap) {
             InputAction::Ignore => {}
             InputAction::PtyBytes(bytes) => {
@@ -78,6 +82,33 @@ impl App {
         }
 
         Ok(())
+    }
+
+    fn handle_terminal_navigation_key(&mut self, event: KeyEvent) -> Result<bool, AppError> {
+        if event.modifiers != KeyModifiers::NONE {
+            return Ok(false);
+        }
+
+        match event.code {
+            KeyCode::Home => {
+                self.tabs.write_to_active_pane(b"\x1b[H").map_err(tabs_error)?;
+                self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
+                Ok(true)
+            }
+            KeyCode::End => {
+                if self.tabs.active_pane_is_scrolled_back().map_err(tabs_error)? {
+                    self.tabs
+                        .scroll_active_pane_to_bottom()
+                        .map_err(tabs_error)?;
+                    self.ui_dirty = true;
+                } else {
+                    self.tabs.write_to_active_pane(b"\x1b[F").map_err(tabs_error)?;
+                    self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
+                }
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     }
 
     pub fn redraw<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), AppError> {
@@ -888,6 +919,137 @@ mod tests {
 
         std::env::set_current_dir(previous_dir).unwrap();
         assert!(ok, "left arrow must move shell cursor left before Enter");
+    }
+
+    #[test]
+    #[serial]
+    fn plain_home_moves_shell_cursor_to_start_of_line() {
+        let temp = tempdir().unwrap();
+        let previous_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let ok = with_env_var("SHELL", "/bin/bash", || {
+            let shell = default_shell_config().unwrap();
+            let mut app = App::new(shell).unwrap();
+            let mut clipboard = MemoryClipboard::new();
+
+            let initial_output = wait_until(Duration::from_secs(3), || {
+                app.refresh_all_panes_output().is_ok()
+                    && app
+                        .tabs
+                        .active_pane_text()
+                        .map(|text| !text.trim().is_empty())
+                        .unwrap_or(false)
+            });
+            if !initial_output {
+                return false;
+            }
+
+            app.handle_key_event(
+                key_event(KeyCode::Char('a'), KeyModifiers::NONE),
+                &mut clipboard,
+            )
+            .unwrap();
+            app.handle_key_event(
+                key_event(KeyCode::Char('b'), KeyModifiers::NONE),
+                &mut clipboard,
+            )
+            .unwrap();
+            app.handle_key_event(
+                key_event(KeyCode::Char('c'), KeyModifiers::NONE),
+                &mut clipboard,
+            )
+            .unwrap();
+            app.handle_key_event(key_event(KeyCode::Home, KeyModifiers::NONE), &mut clipboard)
+                .unwrap();
+            app.handle_key_event(
+                key_event(KeyCode::Char('X'), KeyModifiers::NONE),
+                &mut clipboard,
+            )
+            .unwrap();
+
+            wait_until(Duration::from_secs(3), || {
+                app.refresh_all_panes_output().is_ok()
+                    && app
+                        .tabs
+                        .active_pane_text()
+                        .map(|text| text.contains("Xabc"))
+                        .unwrap_or(false)
+            })
+        });
+
+        std::env::set_current_dir(previous_dir).unwrap();
+        assert!(ok, "home must move shell cursor to the beginning of the line");
+    }
+
+    #[test]
+    #[serial]
+    fn plain_end_moves_shell_cursor_to_end_of_line_when_not_scrolled() {
+        let temp = tempdir().unwrap();
+        let previous_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let ok = with_env_var("SHELL", "/bin/bash", || {
+            let shell = default_shell_config().unwrap();
+            let mut app = App::new(shell).unwrap();
+            let mut clipboard = MemoryClipboard::new();
+
+            let initial_output = wait_until(Duration::from_secs(3), || {
+                app.refresh_all_panes_output().is_ok()
+                    && app
+                        .tabs
+                        .active_pane_text()
+                        .map(|text| !text.trim().is_empty())
+                        .unwrap_or(false)
+            });
+            if !initial_output {
+                return false;
+            }
+
+            app.handle_key_event(
+                key_event(KeyCode::Char('a'), KeyModifiers::NONE),
+                &mut clipboard,
+            )
+            .unwrap();
+            app.handle_key_event(
+                key_event(KeyCode::Char('b'), KeyModifiers::NONE),
+                &mut clipboard,
+            )
+            .unwrap();
+            app.handle_key_event(
+                key_event(KeyCode::Char('c'), KeyModifiers::NONE),
+                &mut clipboard,
+            )
+            .unwrap();
+            app.handle_key_event(key_event(KeyCode::Left, KeyModifiers::NONE), &mut clipboard)
+                .unwrap();
+            app.handle_key_event(key_event(KeyCode::Home, KeyModifiers::NONE), &mut clipboard)
+                .unwrap();
+            app.handle_key_event(
+                key_event(KeyCode::Char('X'), KeyModifiers::NONE),
+                &mut clipboard,
+            )
+            .unwrap();
+            app.handle_key_event(key_event(KeyCode::End, KeyModifiers::NONE), &mut clipboard)
+                .unwrap();
+            app.handle_key_event(
+                key_event(KeyCode::Char('Y'), KeyModifiers::NONE),
+                &mut clipboard,
+            )
+            .unwrap();
+
+            wait_until(Duration::from_secs(3), || {
+                app.refresh_all_panes_output().is_ok()
+                    && app
+                        .tabs
+                        .active_pane_text()
+                        .map(|text| text.contains("XabcY"))
+                        .unwrap_or(false)
+            })
+        });
+
+        std::env::set_current_dir(previous_dir).unwrap();
+        assert!(ok, "end must move shell cursor to the end of the line when pane is not scrolled");
     }
 
     #[test]

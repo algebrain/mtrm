@@ -410,6 +410,13 @@ impl TabManager {
         self.pane_text(self.active_pane_id())
     }
 
+    pub fn active_pane_is_scrolled_back(&self) -> Result<bool, TabsError> {
+        let pane_id = self.active_pane_id();
+        self.find_pane(pane_id)
+            .map(|pane| pane.screen.scrollback() > 0)
+            .ok_or(TabsError::PaneNotFound(pane_id))
+    }
+
     pub fn pane_lines(&self, pane_id: PaneId) -> Result<Vec<ScreenLine>, TabsError> {
         self.find_pane(pane_id)
             .map(|pane| pane.screen.visible_lines())
