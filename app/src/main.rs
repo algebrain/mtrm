@@ -6,8 +6,8 @@ use std::time::UNIX_EPOCH;
 
 use crossterm::ExecutableCommand;
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-    MouseButton, MouseEvent, MouseEventKind,
+    self, DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture, Event,
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -32,6 +32,7 @@ pub struct App {
     selection: Option<SelectionState>,
     should_quit: bool,
     ui_dirty: bool,
+    window_focused: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +81,7 @@ impl App {
             selection: None,
             should_quit: false,
             ui_dirty: true,
+            window_focused: true,
         })
     }
 
@@ -95,6 +97,7 @@ impl App {
                     selection: None,
                     should_quit: false,
                     ui_dirty: true,
+                    window_focused: true,
                 })
             }
             None => Self::new_with_keymap(shell, keymap),
@@ -169,18 +172,26 @@ impl App {
 
         match event.code {
             KeyCode::Home => {
-                self.tabs.write_to_active_pane(b"\x1b[H").map_err(tabs_error)?;
+                self.tabs
+                    .write_to_active_pane(b"\x1b[H")
+                    .map_err(tabs_error)?;
                 self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
                 Ok(true)
             }
             KeyCode::End => {
-                if self.tabs.active_pane_is_scrolled_back().map_err(tabs_error)? {
+                if self
+                    .tabs
+                    .active_pane_is_scrolled_back()
+                    .map_err(tabs_error)?
+                {
                     self.tabs
                         .scroll_active_pane_to_bottom()
                         .map_err(tabs_error)?;
                     self.ui_dirty = true;
                 } else {
-                    self.tabs.write_to_active_pane(b"\x1b[F").map_err(tabs_error)?;
+                    self.tabs
+                        .write_to_active_pane(b"\x1b[F")
+                        .map_err(tabs_error)?;
                     self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
                 }
                 Ok(true)
@@ -233,6 +244,14 @@ impl App {
                                 height: rows.saturating_sub(1),
                             })
                             .map_err(tabs_error)?;
+                        self.ui_dirty = true;
+                    }
+                    Event::FocusGained => {
+                        self.window_focused = true;
+                        self.ui_dirty = true;
+                    }
+                    Event::FocusLost => {
+                        self.window_focused = false;
                         self.ui_dirty = true;
                     }
                     _ => {}
@@ -442,15 +461,17 @@ impl App {
                     .pane_lines(id)
                     .map_err(tabs_error)
                     .unwrap_or_default(),
-                selection: self
-                    .selection
-                    .and_then(|selection| selection.view_for(id)),
+                selection: self.selection.and_then(|selection| selection.view_for(id)),
                 cursor: self.tabs.pane_cursor(id).ok().flatten(),
             })
             .collect();
 
         let _ = active_tab_snapshot;
-        Ok(FrameView { tabs, panes })
+        Ok(FrameView {
+            tabs,
+            panes,
+            focused: self.window_focused,
+        })
     }
 }
 
@@ -483,15 +504,18 @@ fn main() -> Result<(), AppError> {
         }
     }
 
-    let shell =
-        default_shell_config(cli.debug_log_path).map_err(|error| AppError::Config(error.to_string()))?;
+    let shell = default_shell_config(cli.debug_log_path)
+        .map_err(|error| AppError::Config(error.to_string()))?;
 
     enable_raw_mode().map_err(terminal_io_error)?;
     let mut stdout = io::stdout();
     stdout
         .execute(EnterAlternateScreen)
         .map_err(terminal_io_error)?;
-    stdout.execute(EnableMouseCapture).map_err(terminal_io_error)?;
+    stdout.execute(EnableFocusChange).map_err(terminal_io_error)?;
+    stdout
+        .execute(EnableMouseCapture)
+        .map_err(terminal_io_error)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).map_err(terminal_io_error)?;
     let mut clipboard = SystemClipboard::new().map_err(clipboard_error)?;
@@ -502,6 +526,7 @@ fn main() -> Result<(), AppError> {
     })();
 
     let _ = disable_raw_mode();
+    let _ = terminal.backend_mut().execute(DisableFocusChange);
     let _ = terminal.backend_mut().execute(DisableMouseCapture);
     let _ = terminal.backend_mut().execute(LeaveAlternateScreen);
     let _ = terminal.show_cursor();
@@ -534,9 +559,9 @@ where
             "-h" | "--help" => action = CliAction::PrintHelp,
             "-v" | "--version" => action = CliAction::PrintVersion,
             "--debug-log" => {
-                let path = args.next().ok_or_else(|| {
-                    AppError::Config("missing value for --debug-log".to_owned())
-                })?;
+                let path = args
+                    .next()
+                    .ok_or_else(|| AppError::Config("missing value for --debug-log".to_owned()))?;
                 debug_log_path = Some(PathBuf::from(path));
             }
             _ => {
@@ -573,7 +598,6 @@ Options:
 Keybindings:
   Ctrl+C           Copy selection
   Ctrl+V           Paste from system clipboard
-  Ctrl+Shift+C     Send interrupt to active process
   Alt+X            Send interrupt to active process
   Alt+-            Split active pane left/right
   Alt+=            Split active pane top/bottom
@@ -699,7 +723,9 @@ impl App {
             .placements(content_area)
             .ok()?
             .into_iter()
-            .find_map(|(pane_id, area, _)| point_in_pane_content(area, pane_id, event.column, event.row))
+            .find_map(|(pane_id, area, _)| {
+                point_in_pane_content(area, pane_id, event.column, event.row)
+            })
     }
 
     fn drag_selection_target(
@@ -722,7 +748,12 @@ impl App {
         terminal_width: u16,
         event: MouseEvent,
     ) -> Option<mtrm_core::TabId> {
-        tab_id_at_position(&self.tabs.tab_summaries(), terminal_width, event.column, event.row)
+        tab_id_at_position(
+            &self.tabs.tab_summaries(),
+            terminal_width,
+            event.column,
+            event.row,
+        )
     }
 }
 
@@ -874,8 +905,14 @@ mod tests {
         let short = vec!["mtrm".to_owned(), "-v".to_owned()];
         let long = vec!["mtrm".to_owned(), "--version".to_owned()];
 
-        assert_eq!(parse_cli_args(short).unwrap().action, CliAction::PrintVersion);
-        assert_eq!(parse_cli_args(long).unwrap().action, CliAction::PrintVersion);
+        assert_eq!(
+            parse_cli_args(short).unwrap().action,
+            CliAction::PrintVersion
+        );
+        assert_eq!(
+            parse_cli_args(long).unwrap().action,
+            CliAction::PrintVersion
+        );
     }
 
     #[test]
@@ -923,7 +960,8 @@ mod tests {
         };
         let mut app = App::new(shell).unwrap();
 
-        app.handle_layout_command(LayoutCommand::ScrollUpLines(1)).unwrap();
+        app.handle_layout_command(LayoutCommand::ScrollUpLines(1))
+            .unwrap();
 
         let log = fs::read_to_string(log_path).unwrap();
         assert!(log.contains("MTRM_EVENT SCROLL_UP_LINES lines=1"));
@@ -1018,7 +1056,11 @@ mod tests {
         result
     }
 
-    fn find_visible_text_position(app: &App, pane_id: mtrm_core::PaneId, needle: &str) -> (u16, u16) {
+    fn find_visible_text_position(
+        app: &App,
+        pane_id: mtrm_core::PaneId,
+        needle: &str,
+    ) -> (u16, u16) {
         let text = app.tabs.pane_text(pane_id).unwrap();
         for (row, line) in text.split('\n').enumerate() {
             if let Some(col) = line.find(needle) {
@@ -1464,7 +1506,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_key_event_ctrl_shift_c_sends_interrupt() {
+    fn handle_key_event_alt_x_sends_interrupt() {
         let temp = tempdir().unwrap();
         let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
         let mut clipboard = MemoryClipboard::new();
@@ -1472,10 +1514,7 @@ mod tests {
         app.tabs.write_to_active_pane(b"sleep 5\n").unwrap();
         thread::sleep(Duration::from_millis(150));
         app.handle_key_event(
-            key_event(
-                KeyCode::Char('c'),
-                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-            ),
+            key_event(KeyCode::Char('x'), KeyModifiers::ALT),
             &mut clipboard,
         )
         .unwrap();
@@ -1820,7 +1859,10 @@ mod tests {
                 })
             }
         };
-        assert!(ok, "home must move shell cursor to the beginning of the line");
+        assert!(
+            ok,
+            "home must move shell cursor to the beginning of the line"
+        );
     }
 
     #[test]
@@ -1885,7 +1927,10 @@ mod tests {
                 })
             }
         };
-        assert!(ok, "end must move shell cursor to the end of the line when pane is not scrolled");
+        assert!(
+            ok,
+            "end must move shell cursor to the end of the line when pane is not scrolled"
+        );
     }
 
     #[test]

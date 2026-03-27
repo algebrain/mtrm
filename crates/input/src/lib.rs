@@ -55,13 +55,6 @@ pub fn map_key_event(event: KeyEvent) -> InputAction {
 }
 
 pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputAction {
-    if event.modifiers.contains(KeyModifiers::CONTROL)
-        && event.modifiers.contains(KeyModifiers::SHIFT)
-        && matches_char(event.code, |ch| keymap.matches_copy(ch))
-    {
-        return InputAction::Command(AppCommand::SendInterrupt);
-    }
-
     if event.modifiers == KeyModifiers::CONTROL {
         return if matches_char(event.code, |ch| keymap.matches_copy(ch)) {
             InputAction::Command(AppCommand::Clipboard(ClipboardCommand::CopySelection))
@@ -200,21 +193,21 @@ mod tests {
     }
 
     #[test]
-    fn maps_ctrl_shift_c_to_interrupt() {
+    fn maps_alt_x_to_interrupt() {
         assert_eq!(
-            map_key_event(key_event(
-                KeyCode::Char('c'),
-                KeyModifiers::CONTROL | KeyModifiers::SHIFT
-            )),
+            map_key_event(key_event(KeyCode::Char('x'), KeyModifiers::ALT)),
             InputAction::Command(AppCommand::SendInterrupt)
         );
     }
 
     #[test]
-    fn maps_alt_x_to_interrupt() {
+    fn ctrl_shift_c_is_not_reserved_for_interrupt() {
         assert_eq!(
-            map_key_event(key_event(KeyCode::Char('x'), KeyModifiers::ALT)),
-            InputAction::Command(AppCommand::SendInterrupt)
+            map_key_event(key_event(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            )),
+            InputAction::Ignore
         );
     }
 
@@ -576,6 +569,9 @@ next_tab = ["."]
 
     #[test]
     fn unsupported_non_printable_events_are_ignored() {
-        assert_eq!(map_key_event(key_event(KeyCode::F(1), KeyModifiers::NONE)), InputAction::Ignore);
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(1), KeyModifiers::NONE)),
+            InputAction::Ignore
+        );
     }
 }

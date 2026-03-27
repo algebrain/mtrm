@@ -16,7 +16,6 @@
 | --- | --- |
 | `Ctrl+C` | `Command(AppCommand::Clipboard(ClipboardCommand::CopySelection))` |
 | `Ctrl+V` | `Command(AppCommand::Clipboard(ClipboardCommand::PasteFromSystem))` |
-| `Ctrl+Shift+C` | `Command(AppCommand::SendInterrupt)` |
 | `Alt+X` | `Command(AppCommand::SendInterrupt)` |
 | `Alt+-` | `Command(AppCommand::Layout(LayoutCommand::SplitFocused(SplitDirection::Vertical)))` |
 | `Alt+=` | `Command(AppCommand::Layout(LayoutCommand::SplitFocused(SplitDirection::Horizontal)))` |

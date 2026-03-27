@@ -81,7 +81,7 @@ mtrm --debug-log /tmp/mtrm-pty.log
 
 - `Ctrl+C`: copy pane text
 - `Ctrl+V`: paste from the system clipboard
-- `Ctrl+Shift+C` or `Alt+X`: send `SIGINT` to the active process
+- `Alt+X`: send `SIGINT` to the active process
 - `Alt+-`: split the active pane left/right
 - `Alt+=`: split the active pane top/bottom
 - `Alt+Q`: close the active pane if it is not the last one

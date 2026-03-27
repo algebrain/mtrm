@@ -26,7 +26,6 @@ pub fn map_key_event(event: KeyEvent) -> InputAction;
 
 - `Ctrl+C` -> `InputAction::Command(AppCommand::Clipboard(ClipboardCommand::CopySelection))`
 - `Ctrl+V` -> `InputAction::Command(AppCommand::Clipboard(ClipboardCommand::PasteFromSystem))`
-- `Ctrl+Shift+C` -> `InputAction::Command(AppCommand::SendInterrupt)`
 - `Alt+X` -> `InputAction::Command(AppCommand::SendInterrupt)`
 - `Alt+Left` -> команда перемещения фокуса влево
 - `Alt+Right` -> команда перемещения фокуса вправо
@@ -47,7 +46,6 @@ pub fn map_key_event(event: KeyEvent) -> InputAction;
 
 - `Ctrl+C`;
 - `Ctrl+V`;
-- `Ctrl+Shift+C`;
 - `Alt+X`;
 - `Alt+Left`, `Alt+Right`, `Alt+Up`, `Alt+Down`;
 - обычный символ, например `a`;
@@ -64,4 +62,3 @@ pub fn map_key_event(event: KeyEvent) -> InputAction;
 - полной таблицей соответствия клавиш и `InputAction`;
 - примерами кодирования обычных символов в `PtyBytes`;
 - правилом, какие события возвращают `Ignore`.
-

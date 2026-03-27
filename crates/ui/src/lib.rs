@@ -42,6 +42,7 @@ pub struct PaneSelectionView {
 pub struct FrameView {
     pub tabs: Vec<TabView>,
     pub panes: Vec<PaneView>,
+    pub focused: bool,
 }
 
 pub fn render_frame<B: Backend>(
@@ -53,7 +54,7 @@ pub fn render_frame<B: Backend>(
 
         render_tabs(frame, frame_view, full);
         for pane in &frame_view.panes {
-            render_pane(frame, pane, full);
+            render_pane(frame, pane, full, frame_view.focused);
         }
     })?;
     Ok(())
@@ -78,12 +79,7 @@ fn render_tabs(frame: &mut ratatui::Frame<'_>, frame_view: &FrameView, area: Tui
 
     let tabs = Tabs::new(titles)
         .select(selected)
-        .highlight_style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )
+        .highlight_style(active_tab_style(frame_view.focused))
         .divider(Span::raw(" "))
         .padding("", "")
         .style(Style::default().fg(Color::Gray));
@@ -97,16 +93,19 @@ fn render_tabs(frame: &mut ratatui::Frame<'_>, frame_view: &FrameView, area: Tui
     frame.render_widget(tabs, tab_area);
 }
 
-fn render_pane(frame: &mut ratatui::Frame<'_>, pane: &PaneView, full_area: TuiRect) {
+fn render_pane(
+    frame: &mut ratatui::Frame<'_>,
+    pane: &PaneView,
+    full_area: TuiRect,
+    window_focused: bool,
+) {
     let area = shift_and_clip_rect(pane.area, full_area);
     if area.width == 0 || area.height == 0 {
         return;
     }
 
     let border_style = if pane.active {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
+        active_pane_border_style(window_focused)
     } else {
         Style::default().fg(Color::DarkGray)
     };
@@ -121,11 +120,35 @@ fn render_pane(frame: &mut ratatui::Frame<'_>, pane: &PaneView, full_area: TuiRe
     render_cursor_overlay(frame, pane, area);
 }
 
-fn render_pane_content(
-    frame: &mut ratatui::Frame<'_>,
-    pane: &PaneView,
-    area: TuiRect,
-) {
+fn active_tab_style(window_focused: bool) -> Style {
+    if window_focused {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::White)
+            .bg(Color::Red)
+            .add_modifier(Modifier::BOLD)
+    }
+}
+
+fn active_pane_border_style(
+    window_focused: bool,
+) -> Style {
+    if window_focused {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Red)
+            .add_modifier(Modifier::BOLD)
+    }
+}
+
+fn render_pane_content(frame: &mut ratatui::Frame<'_>, pane: &PaneView, area: TuiRect) {
     let content_x = area.x.saturating_add(1);
     let content_y = area.y.saturating_add(1);
     let content_width = area.width.saturating_sub(2);
@@ -185,7 +208,8 @@ fn render_pane_content(
                 style = invert_style(style);
             }
 
-            let buffer_cell = &mut buffer[(content_x.saturating_add(col), content_y.saturating_add(row))];
+            let buffer_cell =
+                &mut buffer[(content_x.saturating_add(col), content_y.saturating_add(row))];
             buffer_cell.set_symbol(symbol);
             buffer_cell.set_style(style);
         }
@@ -205,8 +229,14 @@ fn invert_style(style: Style) -> Style {
     let bg = style.bg;
     match (fg, bg) {
         (Some(fg), Some(bg)) => style.fg(bg).bg(fg).add_modifier(Modifier::REVERSED),
-        (Some(fg), None) => style.fg(Color::Reset).bg(fg).add_modifier(Modifier::REVERSED),
-        (None, Some(bg)) => style.fg(bg).bg(Color::Reset).add_modifier(Modifier::REVERSED),
+        (Some(fg), None) => style
+            .fg(Color::Reset)
+            .bg(fg)
+            .add_modifier(Modifier::REVERSED),
+        (None, Some(bg)) => style
+            .fg(bg)
+            .bg(Color::Reset)
+            .add_modifier(Modifier::REVERSED),
         (None, None) => style
             .fg(Color::Black)
             .bg(Color::Gray)
@@ -253,11 +283,7 @@ fn render_selection_overlay(frame: &mut ratatui::Frame<'_>, pane: &PaneView, are
             }
             let cell = &mut buffer[(content_x.saturating_add(col), content_y.saturating_add(row))];
             let style = cell.style();
-            cell.set_style(
-                style
-                    .bg(Color::DarkGray)
-                    .add_modifier(Modifier::REVERSED),
-            );
+            cell.set_style(style.bg(Color::DarkGray).add_modifier(Modifier::REVERSED));
         }
     }
 }
@@ -334,8 +360,8 @@ fn render_cursor_overlay(frame: &mut ratatui::Frame<'_>, pane: &PaneView, area: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
     use mtrm_terminal_screen::TerminalScreen;
+    use ratatui::backend::TestBackend;
 
     fn render(frame_view: &FrameView, width: u16, height: u16) -> Terminal<TestBackend> {
         let backend = TestBackend::new(width, height);
@@ -431,6 +457,7 @@ mod tests {
                     selection: None,
                     cursor: None,
                 }],
+                focused: true,
             },
             30,
             10,
@@ -459,6 +486,7 @@ mod tests {
                     },
                 ],
                 panes: vec![],
+                focused: true,
             },
             20,
             5,
@@ -488,6 +516,7 @@ mod tests {
                     },
                 ],
                 panes: vec![],
+                focused: true,
             },
             20,
             5,
@@ -497,6 +526,37 @@ mod tests {
         let highlighted = (0..20).any(|x| {
             let cell = &buffer[(x, 0)];
             cell.style().bg == Some(Color::Yellow)
+        });
+        assert!(highlighted);
+    }
+
+    #[test]
+    fn highlights_active_tab_in_red_when_window_is_unfocused() {
+        let terminal = render(
+            &FrameView {
+                tabs: vec![
+                    TabView {
+                        id: TabId::new(1),
+                        title: "one".to_owned(),
+                        active: false,
+                    },
+                    TabView {
+                        id: TabId::new(2),
+                        title: "two".to_owned(),
+                        active: true,
+                    },
+                ],
+                panes: vec![],
+                focused: false,
+            },
+            20,
+            5,
+        );
+
+        let buffer = terminal.backend().buffer();
+        let highlighted = (0..20).any(|x| {
+            let cell = &buffer[(x, 0)];
+            cell.style().bg == Some(Color::Red)
         });
         assert!(highlighted);
     }
@@ -540,6 +600,7 @@ mod tests {
                         cursor: None,
                     },
                 ],
+                focused: true,
             },
             25,
             10,
@@ -548,6 +609,39 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(0, 1)].style().fg, Some(Color::Yellow));
         assert_eq!(buffer[(10, 1)].style().fg, Some(Color::DarkGray));
+    }
+
+    #[test]
+    fn highlights_active_pane_border_in_red_when_window_is_unfocused() {
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![PaneView {
+                    id: PaneId::new(1),
+                    title: "active".to_owned(),
+                    area: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 10,
+                        height: 5,
+                    },
+                    active: true,
+                    lines: vec![],
+                    selection: None,
+                    cursor: None,
+                }],
+                focused: false,
+            },
+            20,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 1)].style().fg, Some(Color::Red));
     }
 
     #[test]
@@ -593,6 +687,7 @@ mod tests {
                     }),
                     cursor: None,
                 }],
+                focused: true,
             },
             20,
             8,
@@ -644,6 +739,7 @@ mod tests {
                     selection: None,
                     cursor: None,
                 }],
+                focused: true,
             },
             30,
             12,
@@ -695,6 +791,7 @@ mod tests {
                     selection: None,
                     cursor: Some((0, 1)),
                 }],
+                focused: true,
             },
             20,
             8,
@@ -758,6 +855,7 @@ mod tests {
                     selection: None,
                     cursor: Some((0, 1)),
                 }],
+                focused: true,
             },
             20,
             8,
@@ -808,6 +906,7 @@ mod tests {
                     selection: None,
                     cursor: Some((0, 2)),
                 }],
+                focused: true,
             },
             20,
             8,
@@ -859,6 +958,7 @@ mod tests {
                     selection: None,
                     cursor: Some((0, 1)),
                 }],
+                focused: true,
             },
             20,
             8,
@@ -882,6 +982,7 @@ mod tests {
                     active: true,
                 }],
                 panes: vec![pane_from_screen(&screen)],
+                focused: true,
             },
             30,
             8,
@@ -890,7 +991,10 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let row: String = (1..8).map(|x| buffer[(x, 2)].symbol()).collect();
 
-        assert!(row.starts_with("я  б"), "expected visible gap cells, got {row:?}");
+        assert!(
+            row.starts_with("я  б"),
+            "expected visible gap cells, got {row:?}"
+        );
     }
 
     #[test]
@@ -906,6 +1010,7 @@ mod tests {
                     active: true,
                 }],
                 panes: vec![pane_from_screen(&screen)],
+                focused: true,
             },
             30,
             8,
@@ -932,6 +1037,7 @@ mod tests {
                     active: true,
                 }],
                 panes: vec![pane_from_screen(&first)],
+                focused: true,
             },
         )
         .unwrap();
@@ -947,6 +1053,7 @@ mod tests {
                     active: true,
                 }],
                 panes: vec![pane_from_screen(&second)],
+                focused: true,
             },
         )
         .unwrap();
@@ -954,7 +1061,10 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let row: String = (1..8).map(|x| buffer[(x, 2)].symbol()).collect();
 
-        assert!(row.starts_with("ab     "), "stale content remained in row: {row:?}");
+        assert!(
+            row.starts_with("ab     "),
+            "stale content remained in row: {row:?}"
+        );
     }
 
     #[test]
@@ -999,6 +1109,7 @@ mod tests {
                         &right_empty,
                     ),
                 ],
+                focused: true,
             },
         )
         .unwrap();
@@ -1039,6 +1150,7 @@ mod tests {
                         &right_empty,
                     ),
                 ],
+                focused: true,
             },
         )
         .unwrap();
@@ -1099,6 +1211,7 @@ mod tests {
                         &right_first,
                     ),
                 ],
+                focused: true,
             },
         )
         .unwrap();
@@ -1140,6 +1253,7 @@ mod tests {
                         &right_second,
                     ),
                 ],
+                focused: true,
             },
         )
         .unwrap();
@@ -1147,7 +1261,10 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let right_row: String = (21..38).map(|x| buffer[(x, 2)].symbol()).collect();
 
-        assert!(right_row.starts_with("ok"), "right pane lost fresh text: {right_row:?}");
+        assert!(
+            right_row.starts_with("ok"),
+            "right pane lost fresh text: {right_row:?}"
+        );
         assert!(
             !right_row.contains("left"),
             "left-pane text leaked into right pane row: {right_row:?}"
@@ -1170,6 +1287,7 @@ mod tests {
                     active: true,
                 }],
                 panes: vec![pane_from_screen(&first)],
+                focused: true,
             },
         )
         .unwrap();
@@ -1185,6 +1303,7 @@ mod tests {
                     active: true,
                 }],
                 panes: vec![pane_from_screen(&second)],
+                focused: true,
             },
         )
         .unwrap();
@@ -1264,6 +1383,7 @@ mod tests {
                     selection: None,
                     cursor: Some((0, 1)),
                 }],
+                focused: true,
             },
             20,
             8,
@@ -1316,6 +1436,7 @@ mod tests {
                     selection: None,
                     cursor: None,
                 }],
+                focused: true,
             },
             20,
             8,
@@ -1355,6 +1476,7 @@ mod tests {
                     selection: None,
                     cursor: None,
                 }],
+                focused: true,
             },
             20,
             8,
@@ -1396,6 +1518,7 @@ mod tests {
                     selection: None,
                     cursor: None,
                 }],
+                focused: true,
             },
             20,
             8,
@@ -1435,6 +1558,7 @@ mod tests {
                     selection: None,
                     cursor: None,
                 }],
+                focused: true,
             },
             20,
             8,
@@ -1477,6 +1601,7 @@ mod tests {
                     selection: None,
                     cursor: None,
                 }],
+                focused: true,
             },
             20,
             8,
