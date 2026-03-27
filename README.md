@@ -18,6 +18,20 @@ More specifically, the implementation in this repository has been tested on:
 
 ## Installation
 
+### Download from Releases
+
+GitHub Releases now publish two Linux artifacts that you can download directly:
+
+- `mtrm.deb`
+- `mtrm`
+
+At the moment, the only release artifacts considered working and supported are the Ubuntu-built ones:
+
+- the Debian package for Ubuntu-style installation
+- the Linux executable file
+
+The CI workflow may also attempt to build Windows and macOS artifacts, but those should not yet be treated as supported release deliverables.
+
 ### Build and run from source
 
 From the repository root:
