@@ -552,8 +552,11 @@ where
 }
 
 fn print_help() {
-    println!(
-        "\
+    println!("{}", help_text());
+}
+
+fn help_text() -> String {
+    "\
 mtrm
 
 Usage:
@@ -565,8 +568,36 @@ Usage:
 Options:
   -h, --help       Print this help and exit
   -v, --version    Print version and exit
-  --debug-log PATH Append raw PTY output chunks to PATH for debugging"
-    );
+  --debug-log PATH Append raw PTY output chunks to PATH for debugging
+
+Keybindings:
+  Ctrl+C           Copy selection
+  Ctrl+V           Paste from system clipboard
+  Ctrl+Shift+C     Send interrupt to active process
+  Alt+X            Send interrupt to active process
+  Alt+-            Split active pane left/right
+  Alt+=            Split active pane top/bottom
+  Alt+Q            Close active pane
+  Alt+T            New tab
+  Alt+,            Previous tab
+  Alt+.            Next tab
+  Alt+W            Close current tab
+  Alt+Shift+Q      Save state and quit
+  Alt+Left         Focus pane left
+  Alt+Right        Focus pane right
+  Alt+Up           Focus pane up
+  Alt+Down         Focus pane down
+  Shift+Up         Scroll pane history up
+  Shift+Down       Scroll pane history down
+  Shift+PageUp     Scroll pane history up by one page
+  Shift+PageDown   Scroll pane history down by one page
+  End              Return scrollback to live bottom
+
+Notes:
+  Letter-based Alt shortcuts come from ~/.mtrm/keymap.toml.
+  Arrow and scrollback bindings are built in.
+"
+    .to_owned()
 }
 
 fn cli_version_string() -> String {
@@ -915,6 +946,17 @@ mod tests {
         assert!(tag.starts_with('v'));
         assert!(!suffix.is_empty());
         assert!(suffix.chars().all(|ch| ch.is_ascii_digit()));
+    }
+
+    #[test]
+    fn help_text_mentions_keybindings_and_keymap_file() {
+        let help = help_text();
+
+        assert!(help.contains("Keybindings:"));
+        assert!(help.contains("Ctrl+C           Copy selection"));
+        assert!(help.contains("Alt+T            New tab"));
+        assert!(help.contains("Shift+PageUp     Scroll pane history up by one page"));
+        assert!(help.contains("~/.mtrm/keymap.toml"));
     }
 
     fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
