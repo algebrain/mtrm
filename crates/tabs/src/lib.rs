@@ -39,6 +39,13 @@ pub struct RuntimeTab {
     pub layout: LayoutTree,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeTabSummary {
+    pub id: TabId,
+    pub title: String,
+    pub active: bool,
+}
+
 struct TabEntry {
     runtime: RuntimeTab,
     panes: BTreeMap<PaneId, PaneEntry>,
@@ -134,6 +141,18 @@ impl TabManager {
 
     pub fn tab_ids(&self) -> Vec<TabId> {
         self.tabs.iter().map(|tab| tab.runtime.id).collect()
+    }
+
+    pub fn tab_summaries(&self) -> Vec<RuntimeTabSummary> {
+        let active = self.active_tab_id();
+        self.tabs
+            .iter()
+            .map(|tab| RuntimeTabSummary {
+                id: tab.runtime.id,
+                title: tab.runtime.title.clone(),
+                active: tab.runtime.id == active,
+            })
+            .collect()
     }
 
     pub fn new_tab(&mut self, shell: &ShellProcessConfig) -> Result<TabId, TabsError> {

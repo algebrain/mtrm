@@ -132,8 +132,12 @@ impl App {
     ) -> Result<(), AppError> {
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                let target = self.selection_target_at(content_area, event);
-                if let Some(target) = target {
+                if let Some(tab_id) = self.tab_id_at_mouse_column(content_area.width, event) {
+                    self.clear_selection();
+                    self.tabs.activate_tab(tab_id).map_err(tabs_error)?;
+                    self.ui_dirty = true;
+                    self.save()?;
+                } else if let Some(target) = self.selection_target_at(content_area, event) {
                     self.tabs.focus_pane(target.pane_id).map_err(tabs_error)?;
                     self.selection = Some(SelectionState {
                         pane_id: target.pane_id,
@@ -681,6 +685,14 @@ impl App {
             .find(|(pane_id, _, _)| *pane_id == selection.pane_id)?;
         point_in_or_clamped_to_pane_content(pane_area, selection.pane_id, event.column, event.row)
     }
+
+    fn tab_id_at_mouse_column(
+        &self,
+        terminal_width: u16,
+        event: MouseEvent,
+    ) -> Option<mtrm_core::TabId> {
+        tab_id_at_position(&self.tabs.tab_summaries(), terminal_width, event.column, event.row)
+    }
 }
 
 fn point_in_pane_content(
@@ -735,6 +747,36 @@ fn pane_content_rect(area: mtrm_layout::Rect) -> Option<mtrm_layout::Rect> {
         width: area.width.saturating_sub(2),
         height: area.height.saturating_sub(2),
     })
+}
+
+fn tab_id_at_position(
+    tabs: &[mtrm_tabs::RuntimeTabSummary],
+    terminal_width: u16,
+    column: u16,
+    row: u16,
+) -> Option<mtrm_core::TabId> {
+    if row != 0 || tabs.is_empty() || column >= terminal_width {
+        return None;
+    }
+
+    let mut x = 0_u16;
+    for (index, tab) in tabs.iter().enumerate() {
+        let title_width = tab.title.chars().count().min(u16::MAX as usize) as u16;
+        let end = x.saturating_add(title_width);
+        if column >= x && column < end {
+            return Some(tab.id);
+        }
+
+        x = end;
+        if index + 1 < tabs.len() {
+            if column == x {
+                return None;
+            }
+            x = x.saturating_add(1);
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -1247,6 +1289,67 @@ mod tests {
         .unwrap();
 
         assert_eq!(app.tabs.active_pane_id(), right_pane);
+    }
+
+    #[test]
+    fn tab_hit_testing_returns_clicked_tab_only_inside_title_span() {
+        let tabs = vec![
+            mtrm_tabs::RuntimeTabSummary {
+                id: mtrm_core::TabId::new(0),
+                title: "One".to_owned(),
+                active: true,
+            },
+            mtrm_tabs::RuntimeTabSummary {
+                id: mtrm_core::TabId::new(1),
+                title: "Two".to_owned(),
+                active: false,
+            },
+        ];
+
+        assert_eq!(
+            tab_id_at_position(&tabs, 80, 0, 0),
+            Some(mtrm_core::TabId::new(0))
+        );
+        assert_eq!(
+            tab_id_at_position(&tabs, 80, 2, 0),
+            Some(mtrm_core::TabId::new(0))
+        );
+        assert_eq!(tab_id_at_position(&tabs, 80, 3, 0), None);
+        assert_eq!(
+            tab_id_at_position(&tabs, 80, 4, 0),
+            Some(mtrm_core::TabId::new(1))
+        );
+        assert_eq!(tab_id_at_position(&tabs, 80, 0, 1), None);
+    }
+
+    #[test]
+    #[serial]
+    fn mouse_click_on_tab_bar_switches_active_tab() {
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir(&home).unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let content_area = mtrm_layout::Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 23,
+        };
+
+        let first = app.tabs.active_tab_id();
+        app.handle_tab_command(TabCommand::NewTab).unwrap();
+        let second = app.tabs.active_tab_id();
+        assert_ne!(first, second);
+
+        with_test_home(&home, || {
+            app.handle_mouse_event(
+                mouse_event(MouseEventKind::Down(MouseButton::Left), 0, 0),
+                content_area,
+            )
+        })
+        .unwrap();
+
+        assert_eq!(app.tabs.active_tab_id(), first);
     }
 
     #[test]
