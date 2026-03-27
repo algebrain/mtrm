@@ -1,12 +1,12 @@
 //! Псевдотерминалы, дочерние процессы и определение рабочего каталога.
 
 use std::collections::VecDeque;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(test)]
 use std::time::Instant;
@@ -32,6 +32,7 @@ pub struct ShellProcessConfig {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub initial_cwd: PathBuf,
+    pub debug_log_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Error)]
@@ -100,7 +101,19 @@ impl ShellProcess {
 
         let read_buffer = Arc::new(Mutex::new(VecDeque::new()));
         let read_error = Arc::new(Mutex::new(None));
-        spawn_reader_thread(reader, Arc::clone(&read_buffer), Arc::clone(&read_error));
+        let debug_log = config
+            .debug_log_path
+            .as_ref()
+            .map(open_debug_log_file)
+            .transpose()
+            .map_err(|error| ProcessError::Spawn(error.to_string()))?;
+        spawn_reader_thread(
+            reader,
+            Arc::clone(&read_buffer),
+            Arc::clone(&read_error),
+            debug_log,
+            process_id,
+        );
 
         Ok(Self {
             master: pair.master,
@@ -252,6 +265,8 @@ fn spawn_reader_thread(
     mut reader: Box<dyn Read + Send>,
     read_buffer: Arc<Mutex<VecDeque<u8>>>,
     read_error: Arc<Mutex<Option<String>>>,
+    debug_log: Option<Arc<Mutex<File>>>,
+    process_id: u32,
 ) {
     thread::spawn(move || {
         let mut buf = [0_u8; 4096];
@@ -259,6 +274,9 @@ fn spawn_reader_thread(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(count) => {
+                    if let Some(debug_log) = &debug_log {
+                        let _ = write_debug_log(debug_log, process_id, &buf[..count]);
+                    }
                     let mut target = read_buffer.lock().expect("read_buffer poisoned");
                     target.extend(&buf[..count]);
                     truncate_read_buffer(&mut target, MAX_READ_BUFFER_BYTES);
@@ -270,6 +288,40 @@ fn spawn_reader_thread(
             }
         }
     });
+}
+
+fn open_debug_log_file(path: &PathBuf) -> Result<Arc<Mutex<File>>, std::io::Error> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let file = OpenOptions::new().create(true).append(true).open(path)?;
+    Ok(Arc::new(Mutex::new(file)))
+}
+
+fn write_debug_log(
+    debug_log: &Arc<Mutex<File>>,
+    process_id: u32,
+    bytes: &[u8],
+) -> Result<(), std::io::Error> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+
+    let escaped = bytes
+        .iter()
+        .flat_map(|byte| std::ascii::escape_default(*byte))
+        .map(char::from)
+        .collect::<String>();
+
+    let mut file = debug_log.lock().expect("debug_log poisoned");
+    writeln!(
+        file,
+        "[{timestamp}] pid={process_id} bytes={} escaped={escaped}",
+        bytes.len()
+    )?;
+    file.flush()
 }
 
 fn truncate_read_buffer(buffer: &mut VecDeque<u8>, max_bytes: usize) {
@@ -288,6 +340,7 @@ mod tests {
             program: PathBuf::from("/bin/sh"),
             args: vec![],
             initial_cwd,
+            debug_log_path: None,
         }
     }
 
@@ -496,6 +549,7 @@ mod tests {
                 "-i".to_owned(),
             ],
             initial_cwd: temp.path().to_path_buf(),
+            debug_log_path: None,
         };
         let mut process = ShellProcess::spawn(config).unwrap();
 

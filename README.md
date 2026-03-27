@@ -38,6 +38,20 @@ If `~/.local/bin` is in your `PATH`, you can then run:
 mtrm
 ```
 
+### CLI options
+
+`mtrm` also supports a few direct CLI flags:
+
+```bash
+mtrm --help
+mtrm --version
+mtrm --debug-log /tmp/mtrm-pty.log
+```
+
+- `--help` / `-h` prints help and exits
+- `--version` / `-v` prints version and exits
+- `--debug-log PATH` appends raw PTY output chunks to `PATH` for terminal-debugging sessions
+
 ## What It Does
 
 - Runs local shells in PTYs
@@ -105,3 +119,12 @@ Engineering documents:
 - [Terminal Emulation Notes](docs/engineering/TERMINAL_EMULATION.md)
 - [Engineering Idea](docs/engineering/idea.engineering.md)
 - [Original Idea Draft](docs/engineering/idea.preliminary.md)
+
+## Version Output
+
+`mtrm --version` prints two parts:
+
+- the latest local git tag, for example `v0.1.1`
+- the modification time of the current executable in Unix seconds
+
+This means the suffix after the space changes when the installed binary file itself changes.

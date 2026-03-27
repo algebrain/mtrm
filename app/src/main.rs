@@ -1,6 +1,8 @@
 use std::io;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
+use std::time::UNIX_EPOCH;
 
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -30,6 +32,19 @@ pub struct App {
     selection: Option<SelectionState>,
     should_quit: bool,
     ui_dirty: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CliAction {
+    Run,
+    PrintHelp,
+    PrintVersion,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CliOptions {
+    action: CliAction,
+    debug_log_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -301,26 +316,31 @@ impl App {
                 self.tabs.move_focus(direction).map_err(tabs_error)?;
             }
             LayoutCommand::ScrollUpLines(lines) => {
+                self.append_debug_log_event(&format!("SCROLL_UP_LINES lines={lines}"));
                 self.tabs
                     .scroll_active_pane_up_lines(lines)
                     .map_err(tabs_error)?;
             }
             LayoutCommand::ScrollDownLines(lines) => {
+                self.append_debug_log_event(&format!("SCROLL_DOWN_LINES lines={lines}"));
                 self.tabs
                     .scroll_active_pane_down_lines(lines)
                     .map_err(tabs_error)?;
             }
             LayoutCommand::ScrollUpPages(pages) => {
+                self.append_debug_log_event(&format!("SCROLL_UP_PAGES pages={pages}"));
                 self.tabs
                     .scroll_active_pane_up_pages(pages)
                     .map_err(tabs_error)?;
             }
             LayoutCommand::ScrollDownPages(pages) => {
+                self.append_debug_log_event(&format!("SCROLL_DOWN_PAGES pages={pages}"));
                 self.tabs
                     .scroll_active_pane_down_pages(pages)
                     .map_err(tabs_error)?;
             }
             LayoutCommand::ScrollToBottom => {
+                self.append_debug_log_event("SCROLL_TO_BOTTOM");
                 self.tabs
                     .scroll_active_pane_to_bottom()
                     .map_err(tabs_error)?;
@@ -362,6 +382,28 @@ impl App {
 
     fn refresh_all_panes_output(&mut self) -> Result<bool, mtrm_tabs::TabsError> {
         self.tabs.refresh_all_panes()
+    }
+
+    fn append_debug_log_event(&self, event: &str) {
+        let Some(path) = &self.shell.debug_log_path else {
+            return;
+        };
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0);
+
+        let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        else {
+            return;
+        };
+
+        let _ = writeln!(file, "[{timestamp}] MTRM_EVENT {event}");
+        let _ = file.flush();
     }
 
     fn build_frame_view(&mut self, content_area: mtrm_layout::Rect) -> Result<FrameView, AppError> {
@@ -423,7 +465,22 @@ pub enum AppError {
 }
 
 fn main() -> Result<(), AppError> {
-    let shell = default_shell_config().map_err(|error| AppError::Config(error.to_string()))?;
+    let cli = parse_cli_args(std::env::args())?;
+
+    match cli.action {
+        CliAction::Run => {}
+        CliAction::PrintHelp => {
+            print_help();
+            return Ok(());
+        }
+        CliAction::PrintVersion => {
+            println!("{}", cli_version_string());
+            return Ok(());
+        }
+    }
+
+    let shell =
+        default_shell_config(cli.debug_log_path).map_err(|error| AppError::Config(error.to_string()))?;
 
     enable_raw_mode().map_err(terminal_io_error)?;
     let mut stdout = io::stdout();
@@ -448,14 +505,83 @@ fn main() -> Result<(), AppError> {
     result
 }
 
-fn default_shell_config() -> Result<ShellProcessConfig, io::Error> {
+fn default_shell_config(debug_log_path: Option<PathBuf>) -> Result<ShellProcessConfig, io::Error> {
     let program = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
     let initial_cwd = std::env::current_dir()?;
     Ok(ShellProcessConfig {
         program: PathBuf::from(program),
         args: vec!["-i".to_owned()],
         initial_cwd,
+        debug_log_path,
     })
+}
+
+fn parse_cli_args<I>(args: I) -> Result<CliOptions, AppError>
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut args = args.into_iter();
+    let _ = args.next();
+
+    let mut action = CliAction::Run;
+    let mut debug_log_path = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-h" | "--help" => action = CliAction::PrintHelp,
+            "-v" | "--version" => action = CliAction::PrintVersion,
+            "--debug-log" => {
+                let path = args.next().ok_or_else(|| {
+                    AppError::Config("missing value for --debug-log".to_owned())
+                })?;
+                debug_log_path = Some(PathBuf::from(path));
+            }
+            _ => {
+                return Err(AppError::Config(format!("unknown argument: {arg}")));
+            }
+        }
+    }
+
+    Ok(CliOptions {
+        action,
+        debug_log_path,
+    })
+}
+
+fn print_help() {
+    println!(
+        "\
+mtrm
+
+Usage:
+  mtrm
+  mtrm -h | --help
+  mtrm -v | --version
+  mtrm [--debug-log PATH]
+
+Options:
+  -h, --help       Print this help and exit
+  -v, --version    Print version and exit
+  --debug-log PATH Append raw PTY output chunks to PATH for debugging"
+    );
+}
+
+fn cli_version_string() -> String {
+    // Версию для CLI считаем так:
+    // 1. `app/build.rs` берет последний git tag через `git describe --tags --abbrev=0`.
+    // 2. Суффикс через пробел считается во время запуска как mtime текущего исполняемого файла.
+    // 3. Поэтому после реальной переустановки бинаря секунда должна меняться вместе с файлом.
+    // 4. Если mtime получить не удалось, fallback идет на `0`.
+    format!("{} {}", env!("MTRM_GIT_TAG"), executable_mtime_secs())
+}
+
+fn executable_mtime_secs() -> u64 {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| std::fs::metadata(path).ok())
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
 }
 
 fn tabs_error(error: impl ToString) -> AppError {
@@ -631,6 +757,7 @@ mod tests {
             program: PathBuf::from("/bin/sh"),
             args: vec![],
             initial_cwd,
+            debug_log_path: None,
         }
     }
 
@@ -639,6 +766,7 @@ mod tests {
             program: PathBuf::from("bash"),
             args: vec!["-i".to_owned()],
             initial_cwd,
+            debug_log_path: None,
         }
     }
 
@@ -649,6 +777,102 @@ mod tests {
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
         }
+    }
+
+    #[test]
+    fn parse_cli_args_defaults_to_run_without_flags() {
+        let args = vec!["mtrm".to_owned()];
+        let options = parse_cli_args(args).unwrap();
+        assert_eq!(options.action, CliAction::Run);
+        assert_eq!(options.debug_log_path, None);
+    }
+
+    #[test]
+    fn parse_cli_args_supports_help_flags() {
+        let short = vec!["mtrm".to_owned(), "-h".to_owned()];
+        let long = vec!["mtrm".to_owned(), "--help".to_owned()];
+
+        assert_eq!(parse_cli_args(short).unwrap().action, CliAction::PrintHelp);
+        assert_eq!(parse_cli_args(long).unwrap().action, CliAction::PrintHelp);
+    }
+
+    #[test]
+    fn parse_cli_args_supports_version_flags() {
+        let short = vec!["mtrm".to_owned(), "-v".to_owned()];
+        let long = vec!["mtrm".to_owned(), "--version".to_owned()];
+
+        assert_eq!(parse_cli_args(short).unwrap().action, CliAction::PrintVersion);
+        assert_eq!(parse_cli_args(long).unwrap().action, CliAction::PrintVersion);
+    }
+
+    #[test]
+    fn parse_cli_args_supports_debug_log_path() {
+        let args = vec![
+            "mtrm".to_owned(),
+            "--debug-log".to_owned(),
+            "/tmp/mtrm-pty.log".to_owned(),
+        ];
+        let options = parse_cli_args(args).unwrap();
+
+        assert_eq!(options.action, CliAction::Run);
+        assert_eq!(
+            options.debug_log_path,
+            Some(PathBuf::from("/tmp/mtrm-pty.log"))
+        );
+    }
+
+    #[test]
+    fn parse_cli_args_supports_version_with_debug_log_path() {
+        let args = vec![
+            "mtrm".to_owned(),
+            "--debug-log".to_owned(),
+            "/tmp/mtrm-pty.log".to_owned(),
+            "--version".to_owned(),
+        ];
+        let options = parse_cli_args(args).unwrap();
+
+        assert_eq!(options.action, CliAction::PrintVersion);
+        assert_eq!(
+            options.debug_log_path,
+            Some(PathBuf::from("/tmp/mtrm-pty.log"))
+        );
+    }
+
+    #[test]
+    fn scroll_command_writes_marker_into_debug_log() {
+        let temp = tempdir().unwrap();
+        let log_path = temp.path().join("mtrm-debug.log");
+        let shell = ShellProcessConfig {
+            program: PathBuf::from("/bin/sh"),
+            args: vec![],
+            initial_cwd: temp.path().to_path_buf(),
+            debug_log_path: Some(log_path.clone()),
+        };
+        let mut app = App::new(shell).unwrap();
+
+        app.handle_layout_command(LayoutCommand::ScrollUpLines(1)).unwrap();
+
+        let log = fs::read_to_string(log_path).unwrap();
+        assert!(log.contains("MTRM_EVENT SCROLL_UP_LINES lines=1"));
+    }
+
+    #[test]
+    fn parse_cli_args_rejects_unknown_flags() {
+        let args = vec!["mtrm".to_owned(), "--wat".to_owned()];
+        let error = parse_cli_args(args).unwrap_err();
+
+        assert!(matches!(error, AppError::Config(_)));
+        assert_eq!(error.to_string(), "configuration error");
+    }
+
+    #[test]
+    fn cli_version_string_uses_git_tag_and_build_suffix() {
+        let version = cli_version_string();
+        let (tag, suffix) = version.split_once(' ').unwrap();
+
+        assert!(tag.starts_with('v'));
+        assert!(!suffix.is_empty());
+        assert!(suffix.chars().all(|ch| ch.is_ascii_digit()));
     }
 
     fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
@@ -1261,6 +1485,94 @@ mod tests {
     }
 
     #[test]
+    fn shift_up_scrolls_fullscreen_history_through_app_commands() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        app.tabs
+            .write_to_active_pane(
+                b"printf '\\033[?1049h\\033[2J\\033[Hframe1\\033[2J\\033[Hframe2\\033[2J\\033[Hframe3'\n",
+            )
+            .unwrap();
+
+        let loaded = wait_until(Duration::from_secs(2), || {
+            app.refresh_all_panes_output().unwrap_or(false)
+                && app
+                    .tabs
+                    .active_pane_text()
+                    .map(|text| text.contains("frame3"))
+                    .unwrap_or(false)
+        });
+        assert!(loaded);
+
+        app.handle_key_event(key_event(KeyCode::Up, KeyModifiers::SHIFT), &mut clipboard)
+            .unwrap();
+        let previous = app.tabs.active_pane_text().unwrap();
+        assert!(previous.contains("frame2"));
+
+        app.handle_key_event(key_event(KeyCode::End, KeyModifiers::NONE), &mut clipboard)
+            .unwrap();
+        let live = app.tabs.active_pane_text().unwrap();
+        assert!(live.contains("frame3"));
+    }
+
+    #[test]
+    fn build_frame_view_hides_cursor_for_scrolled_fullscreen_history() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+        let content_area = mtrm_layout::Rect {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 8,
+        };
+
+        app.tabs.resize_active_tab(content_area).unwrap();
+        app.tabs
+            .write_to_active_pane(
+                b"printf '\\033[?1049h\\033[2J\\033[Hframe1\\033[2J\\033[Hframe2\\033[2J\\033[Hframe3'\n",
+            )
+            .unwrap();
+
+        let loaded = wait_until(Duration::from_secs(2), || {
+            app.refresh_all_panes_output().unwrap_or(false)
+                && app
+                    .tabs
+                    .active_pane_text()
+                    .map(|text| text.contains("frame3"))
+                    .unwrap_or(false)
+        });
+        assert!(loaded);
+
+        app.handle_key_event(key_event(KeyCode::Up, KeyModifiers::SHIFT), &mut clipboard)
+            .unwrap();
+
+        let frame = app.build_frame_view(content_area).unwrap();
+        assert_eq!(frame.panes.len(), 1);
+        let frame_text = frame.panes[0]
+            .lines
+            .iter()
+            .map(|line| {
+                line.cells
+                    .iter()
+                    .map(|cell| {
+                        if cell.has_contents {
+                            cell.text.clone()
+                        } else {
+                            " ".to_owned()
+                        }
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(frame_text.contains("frame2"));
+        assert_eq!(frame.panes[0].cursor, None);
+    }
+
+    #[test]
     fn plain_left_arrow_moves_shell_cursor_left() {
         let temp = tempdir().unwrap();
         let ok = {
@@ -1446,6 +1758,7 @@ mod tests {
                 "-i".to_owned(),
             ],
             initial_cwd: temp.path().to_path_buf(),
+            debug_log_path: None,
         };
         let mut app = App::new(shell.clone()).unwrap();
         let area = mtrm_layout::Rect {
@@ -1618,7 +1931,7 @@ mod tests {
     fn startup_shows_initial_shell_output_for_default_shell_config() {
         let temp = tempdir().unwrap();
         let ok = with_env_var("SHELL", "bash", || {
-            let mut shell = default_shell_config().unwrap();
+            let mut shell = default_shell_config(None).unwrap();
             shell.initial_cwd = temp.path().to_path_buf();
             let mut app = App::new(shell).unwrap();
 
@@ -1639,7 +1952,7 @@ mod tests {
     fn startup_shell_echoes_typed_characters_before_enter() {
         let temp = tempdir().unwrap();
         let ok = with_env_var("SHELL", "bash", || {
-            let mut shell = default_shell_config().unwrap();
+            let mut shell = default_shell_config(None).unwrap();
             shell.initial_cwd = temp.path().to_path_buf();
             let mut app = App::new(shell).unwrap();
             let mut clipboard = MemoryClipboard::new();

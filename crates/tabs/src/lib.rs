@@ -479,6 +479,7 @@ fn spawn_shell(shell: &ShellProcessConfig, cwd: PathBuf) -> Result<PaneEntry, Ta
         program: shell.program.clone(),
         args: shell.args.clone(),
         initial_cwd: cwd,
+        debug_log_path: shell.debug_log_path.clone(),
     };
     let process = ShellProcess::spawn(config).map_err(process_error)?;
     let screen = TerminalScreen::new(
@@ -563,6 +564,7 @@ mod tests {
             program: PathBuf::from("/bin/sh"),
             args: vec![],
             initial_cwd,
+            debug_log_path: None,
         }
     }
 
@@ -950,6 +952,65 @@ mod tests {
                     .unwrap_or(false)
         });
         assert!(reset);
+    }
+
+    #[test]
+    fn active_pane_screen_tracks_alternate_mode_for_fullscreen_sequences() {
+        let temp = tempdir().unwrap();
+        let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+        let pane_id = manager.active_pane_id();
+
+        {
+            let pane = manager.active_tab_mut().panes.get_mut(&pane_id).unwrap();
+            pane.screen.process_bytes(b"shell$ prompt");
+            pane.screen
+                .process_bytes(b"\x1b[?1049h\x1b[2J\x1b[Hcodex frame");
+        }
+
+        let pane = manager.find_pane(pane_id).unwrap();
+        assert_eq!(
+            pane.screen.screen_mode(),
+            mtrm_terminal_screen::ScreenMode::Alternate
+        );
+        assert!(pane.screen.visible_rows()[0].contains("codex frame"));
+
+        {
+            let pane = manager.active_tab_mut().panes.get_mut(&pane_id).unwrap();
+            pane.screen.process_bytes(b"\x1b[?1049l");
+        }
+
+        let pane = manager.find_pane(pane_id).unwrap();
+        assert_eq!(
+            pane.screen.screen_mode(),
+            mtrm_terminal_screen::ScreenMode::Normal
+        );
+        assert!(pane.screen.visible_rows()[0].contains("shell$ prompt"));
+    }
+
+    #[test]
+    fn scrolling_fullscreen_pane_uses_alternate_snapshot_history() {
+        let temp = tempdir().unwrap();
+        let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+        let pane_id = manager.active_pane_id();
+
+        {
+            let pane = manager.active_tab_mut().panes.get_mut(&pane_id).unwrap();
+            pane.screen.process_bytes(b"\x1b[?1049h");
+            pane.screen.process_bytes(b"\x1b[2J\x1b[Hframe1");
+            pane.screen.process_bytes(b"\x1b[2J\x1b[Hframe2");
+            pane.screen.process_bytes(b"\x1b[2J\x1b[Hframe3");
+        }
+
+        let live = manager.active_pane_text().unwrap();
+        assert!(live.contains("frame3"));
+
+        manager.scroll_active_pane_up_lines(1).unwrap();
+        let previous = manager.active_pane_text().unwrap();
+        assert!(previous.contains("frame2"));
+
+        manager.scroll_active_pane_to_bottom().unwrap();
+        let bottom = manager.active_pane_text().unwrap();
+        assert!(bottom.contains("frame3"));
     }
 
     #[test]

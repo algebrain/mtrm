@@ -1,6 +1,13 @@
 //! Экранное состояние одной терминальной панели.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScreenMode {
+    #[default]
+    Normal,
+    Alternate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ScreenColor {
     #[default]
     Default,
@@ -30,21 +37,68 @@ pub struct ScreenLine {
 
 pub struct TerminalScreen {
     parser: vt100::Parser,
+    alt_history_limit: usize,
+    alt_history: Vec<Vec<ScreenLine>>,
+    alt_scrollback: usize,
+    alt_dirty_since_snapshot: bool,
+    screen_mode: ScreenMode,
+    escape_state: EscapeSequenceState,
 }
 
 impl TerminalScreen {
     pub fn new(rows: u16, cols: u16, scrollback_len: usize) -> Self {
         Self {
             parser: vt100::Parser::new(rows.max(1), cols.max(1), scrollback_len),
+            alt_history_limit: scrollback_len,
+            alt_history: Vec::new(),
+            alt_scrollback: 0,
+            alt_dirty_since_snapshot: false,
+            screen_mode: ScreenMode::Normal,
+            escape_state: EscapeSequenceState::Ground,
         }
     }
 
     pub fn process_bytes(&mut self, bytes: &[u8]) {
-        self.parser.process(bytes);
+        for &byte in bytes {
+            if self.screen_mode == ScreenMode::Alternate
+                && byte == 0x1b
+                && self.alt_dirty_since_snapshot
+            {
+                self.capture_alternate_snapshot();
+                self.alt_dirty_since_snapshot = false;
+            }
+
+            let previous_mode = self.screen_mode;
+            let _transition = self.track_screen_mode_byte(byte);
+            self.parser.process(&[byte]);
+
+            if previous_mode != ScreenMode::Alternate && self.screen_mode == ScreenMode::Alternate {
+                self.alt_history.clear();
+                self.alt_scrollback = 0;
+                self.alt_dirty_since_snapshot = false;
+            }
+
+            if self.screen_mode == ScreenMode::Alternate {
+                if byte_affects_alternate_frame(byte) {
+                    self.alt_dirty_since_snapshot = true;
+                }
+            } else {
+                self.alt_scrollback = 0;
+                self.alt_dirty_since_snapshot = false;
+            }
+        }
+
+        if self.screen_mode == ScreenMode::Alternate && self.alt_dirty_since_snapshot {
+            self.capture_alternate_snapshot();
+            self.alt_dirty_since_snapshot = false;
+        }
     }
 
     pub fn resize(&mut self, rows: u16, cols: u16) {
         self.parser.screen_mut().set_size(rows.max(1), cols.max(1));
+        if self.screen_mode == ScreenMode::Alternate {
+            self.capture_alternate_snapshot();
+        }
     }
 
     pub fn size(&self) -> (u16, u16) {
@@ -60,11 +114,48 @@ impl TerminalScreen {
     }
 
     pub fn visible_rows(&self) -> Vec<String> {
+        if let Some(snapshot) = self.alternate_history_snapshot() {
+            return snapshot_rows(&snapshot);
+        }
+
         let (_, cols) = self.size();
         self.parser.screen().rows(0, cols).collect()
     }
 
     pub fn visible_lines(&self) -> Vec<ScreenLine> {
+        if let Some(snapshot) = self.alternate_history_snapshot() {
+            return snapshot;
+        }
+
+        self.current_screen_lines()
+    }
+
+    pub fn scrollback(&self) -> usize {
+        match self.screen_mode {
+            ScreenMode::Normal => self.parser.screen().scrollback(),
+            ScreenMode::Alternate => self.alt_scrollback,
+        }
+    }
+
+    pub fn set_scrollback(&mut self, rows: usize) {
+        match self.screen_mode {
+            ScreenMode::Normal => self.parser.screen_mut().set_scrollback(rows),
+            ScreenMode::Alternate => {
+                let max_offset = self.alt_history.len().saturating_sub(1);
+                self.alt_scrollback = rows.min(max_offset);
+            }
+        }
+    }
+
+    pub fn screen_mode(&self) -> ScreenMode {
+        self.screen_mode
+    }
+
+    pub fn is_alternate_screen(&self) -> bool {
+        self.screen_mode == ScreenMode::Alternate
+    }
+
+    fn current_screen_lines(&self) -> Vec<ScreenLine> {
         let (rows, cols) = self.size();
         let screen = self.parser.screen();
         let mut lines = Vec::with_capacity(rows as usize);
@@ -93,13 +184,113 @@ impl TerminalScreen {
         lines
     }
 
-    pub fn scrollback(&self) -> usize {
-        self.parser.screen().scrollback()
+    fn alternate_history_snapshot(&self) -> Option<Vec<ScreenLine>> {
+        if self.screen_mode != ScreenMode::Alternate || self.alt_scrollback == 0 {
+            return None;
+        }
+
+        self.alt_history
+            .len()
+            .checked_sub(self.alt_scrollback + 1)
+            .and_then(|index| self.alt_history.get(index).cloned())
     }
 
-    pub fn set_scrollback(&mut self, rows: usize) {
-        self.parser.screen_mut().set_scrollback(rows);
+    fn capture_alternate_snapshot(&mut self) {
+        if self.alt_history_limit == 0 {
+            return;
+        }
+
+        let snapshot = self.current_screen_lines();
+        if snapshot_is_blank(&snapshot) {
+            return;
+        }
+        if self.alt_history.last() == Some(&snapshot) {
+            return;
+        }
+
+        self.alt_history.push(snapshot);
+        if self.alt_history.len() > self.alt_history_limit {
+            let overflow = self.alt_history.len() - self.alt_history_limit;
+            self.alt_history.drain(0..overflow);
+        }
+        self.alt_scrollback = self.alt_scrollback.min(self.alt_history.len().saturating_sub(1));
     }
+
+    fn track_screen_mode_byte(&mut self, byte: u8) -> EscapeTransition {
+        let mut transition = EscapeTransition::default();
+
+        match &mut self.escape_state {
+            EscapeSequenceState::Ground => {
+                if byte == 0x1b {
+                    self.escape_state = EscapeSequenceState::Escape;
+                }
+            }
+            EscapeSequenceState::Escape => {
+                if byte == b'[' {
+                    self.escape_state = EscapeSequenceState::Csi(Vec::new());
+                } else if byte == 0x1b {
+                    self.escape_state = EscapeSequenceState::Escape;
+                } else {
+                    self.escape_state = EscapeSequenceState::Ground;
+                }
+            }
+            EscapeSequenceState::Csi(params) => {
+                if is_csi_final_byte(byte) {
+                    update_screen_mode_from_csi(&mut self.screen_mode, params, byte);
+                    self.escape_state = EscapeSequenceState::Ground;
+                    transition.completed_csi = true;
+                } else if byte == 0x1b {
+                    self.escape_state = EscapeSequenceState::Escape;
+                } else {
+                    params.push(byte);
+                }
+            }
+        }
+
+        transition
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum EscapeSequenceState {
+    Ground,
+    Escape,
+    Csi(Vec<u8>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct EscapeTransition {
+    completed_csi: bool,
+}
+
+fn is_csi_final_byte(byte: u8) -> bool {
+    (0x40..=0x7e).contains(&byte)
+}
+
+fn update_screen_mode_from_csi(screen_mode: &mut ScreenMode, params: &[u8], final_byte: u8) {
+    if final_byte != b'h' && final_byte != b'l' {
+        return;
+    }
+
+    let Some(rest) = params.strip_prefix(b"?") else {
+        return;
+    };
+
+    let enable = final_byte == b'h';
+    for param in rest.split(|byte| *byte == b';') {
+        if matches!(param, b"47" | b"1047" | b"1049") {
+            *screen_mode = if enable {
+                ScreenMode::Alternate
+            } else {
+                ScreenMode::Normal
+            };
+            return;
+        }
+    }
+}
+
+fn byte_affects_alternate_frame(byte: u8) -> bool {
+    matches!(byte, 0x08 | b'\t' | b'\n' | 0x0d) || (0x20..=0x7e).contains(&byte) || byte >= 0x80
 }
 
 fn screen_color(color: vt100::Color) -> ScreenColor {
@@ -110,9 +301,41 @@ fn screen_color(color: vt100::Color) -> ScreenColor {
     }
 }
 
+fn snapshot_rows(lines: &[ScreenLine]) -> Vec<String> {
+    lines.iter()
+        .map(|line| {
+            line.cells
+                .iter()
+                .map(|cell| {
+                    if cell.has_contents {
+                        cell.text.clone()
+                    } else {
+                        " ".to_owned()
+                    }
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn snapshot_is_blank(lines: &[ScreenLine]) -> bool {
+    !lines
+        .iter()
+        .flat_map(|line| line.cells.iter())
+        .any(|cell| cell.has_contents)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn alt_screen_bytes(payload: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"\x1b[?1049h");
+        bytes.extend_from_slice(payload);
+        bytes.extend_from_slice(b"\x1b[?1049l");
+        bytes
+    }
 
     fn bytes_with_gap(left: &str, gap_cols: u16, right: &str) -> Vec<u8> {
         let mut bytes = Vec::new();
@@ -266,4 +489,143 @@ mod tests {
         assert!(line.cells[0].dim);
     }
 
+    #[test]
+    fn alternate_screen_sequences_change_explicit_screen_mode() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+
+        assert_eq!(screen.screen_mode(), ScreenMode::Normal);
+        assert!(!screen.is_alternate_screen());
+
+        screen.process_bytes(b"\x1b[?1049h");
+        assert_eq!(screen.screen_mode(), ScreenMode::Alternate);
+        assert!(screen.is_alternate_screen());
+
+        screen.process_bytes(b"\x1b[?1049l");
+        assert_eq!(screen.screen_mode(), ScreenMode::Normal);
+        assert!(!screen.is_alternate_screen());
+    }
+
+    #[test]
+    fn alternate_screen_tracking_survives_fragmented_escape_sequences() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+
+        screen.process_bytes(b"\x1b[?");
+        assert_eq!(screen.screen_mode(), ScreenMode::Normal);
+
+        screen.process_bytes(b"1049");
+        assert_eq!(screen.screen_mode(), ScreenMode::Normal);
+
+        screen.process_bytes(b"h");
+        assert_eq!(screen.screen_mode(), ScreenMode::Alternate);
+
+        screen.process_bytes(b"\x1b[?10");
+        assert_eq!(screen.screen_mode(), ScreenMode::Alternate);
+
+        screen.process_bytes(b"49l");
+        assert_eq!(screen.screen_mode(), ScreenMode::Normal);
+    }
+
+    #[test]
+    fn alternate_screen_tracking_supports_47_and_1047_variants() {
+        let mut screen = TerminalScreen::new(3, 10, 0);
+
+        screen.process_bytes(b"\x1b[?47h");
+        assert_eq!(screen.screen_mode(), ScreenMode::Alternate);
+
+        screen.process_bytes(b"\x1b[?47l");
+        assert_eq!(screen.screen_mode(), ScreenMode::Normal);
+
+        screen.process_bytes(b"\x1b[?1047h");
+        assert_eq!(screen.screen_mode(), ScreenMode::Alternate);
+
+        screen.process_bytes(b"\x1b[?1047l");
+        assert_eq!(screen.screen_mode(), ScreenMode::Normal);
+    }
+
+    #[test]
+    fn leaving_alternate_screen_restores_normal_screen_contents() {
+        let mut screen = TerminalScreen::new(4, 20, 10);
+
+        screen.process_bytes(b"shell$ prompt");
+        screen.process_bytes(&alt_screen_bytes(b"\x1b[2J\x1b[Hcodex ui"));
+
+        assert_eq!(screen.screen_mode(), ScreenMode::Normal);
+        assert!(screen.visible_rows()[0].contains("shell$ prompt"));
+        assert!(!screen.visible_rows()[0].contains("codex ui"));
+    }
+
+    #[test]
+    fn alternate_screen_repaints_do_not_create_useful_line_scrollback_yet() {
+        let mut screen = TerminalScreen::new(3, 20, 20);
+
+        screen.process_bytes(b"shell line 1\nshell line 2\n");
+        screen.process_bytes(b"\x1b[?1049h");
+        screen.process_bytes(b"\x1b[2J\x1b[Hframe1");
+        screen.process_bytes(b"\x1b[2J\x1b[Hframe2");
+        screen.process_bytes(b"\x1b[2J\x1b[Hframe3");
+
+        let bottom = screen.visible_rows();
+        screen.set_scrollback(1);
+        let scrolled = screen.visible_rows();
+
+        assert_eq!(screen.screen_mode(), ScreenMode::Alternate);
+        assert_ne!(bottom, scrolled);
+        assert!(bottom.iter().any(|row| row.contains("frame3")));
+        assert!(scrolled.iter().any(|row| row.contains("frame2")));
+        assert!(!scrolled.iter().any(|row| row.contains("shell line 1")));
+    }
+
+    #[test]
+    fn alternate_screen_scrollback_uses_bounded_snapshot_history() {
+        let mut screen = TerminalScreen::new(3, 20, 2);
+
+        screen.process_bytes(b"\x1b[?1049h");
+        screen.process_bytes(b"\x1b[2J\x1b[Hframe1");
+        screen.process_bytes(b"\x1b[2J\x1b[Hframe2");
+        screen.process_bytes(b"\x1b[2J\x1b[Hframe3");
+
+        screen.set_scrollback(1);
+        let previous = screen.visible_rows();
+        screen.set_scrollback(2);
+        let clamped = screen.visible_rows();
+
+        assert!(previous.iter().any(|row| row.contains("frame2")));
+        assert_eq!(previous, clamped);
+        assert_eq!(screen.scrollback(), 1);
+    }
+
+    #[test]
+    fn alternate_screen_scrollback_captures_multiple_frames_from_single_chunk() {
+        let mut screen = TerminalScreen::new(3, 20, 10);
+
+        screen.process_bytes(
+            b"\x1b[?1049h\x1b[2J\x1b[Hframe1\x1b[2J\x1b[Hframe2\x1b[2J\x1b[Hframe3",
+        );
+
+        let live = screen.visible_rows();
+        screen.set_scrollback(1);
+        let previous = screen.visible_rows();
+        screen.set_scrollback(2);
+        let earlier = screen.visible_rows();
+
+        assert!(live.iter().any(|row| row.contains("frame3")));
+        assert!(previous.iter().any(|row| row.contains("frame2")));
+        assert!(earlier.iter().any(|row| row.contains("frame1")));
+    }
+
+    #[test]
+    fn alternate_screen_snapshot_history_deduplicates_identical_frames() {
+        let mut screen = TerminalScreen::new(3, 20, 10);
+
+        screen.process_bytes(b"\x1b[?1049h\x1b[2J\x1b[Hsame");
+        screen.process_bytes(b"\x1b[2J\x1b[Hsame");
+        screen.process_bytes(b"\x1b[2J\x1b[Hnext");
+
+        screen.set_scrollback(1);
+        let previous = screen.visible_rows();
+        screen.set_scrollback(2);
+
+        assert!(previous.iter().any(|row| row.contains("same")));
+        assert_eq!(screen.scrollback(), 1);
+    }
 }
