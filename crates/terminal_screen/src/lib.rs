@@ -37,6 +37,12 @@ pub struct ScreenLine {
 
 pub struct TerminalScreen {
     parser: vt100::Parser,
+    normal_history_limit: usize,
+    normal_history: Vec<Vec<ScreenLine>>,
+    normal_scrollback: usize,
+    normal_dirty_since_snapshot: bool,
+    normal_capture_phase: NormalCapturePhase,
+    custom_scroll_region_active: bool,
     alt_history_limit: usize,
     alt_history: Vec<Vec<ScreenLine>>,
     alt_scrollback: usize,
@@ -49,6 +55,12 @@ impl TerminalScreen {
     pub fn new(rows: u16, cols: u16, scrollback_len: usize) -> Self {
         Self {
             parser: vt100::Parser::new(rows.max(1), cols.max(1), scrollback_len),
+            normal_history_limit: scrollback_len,
+            normal_history: Vec::new(),
+            normal_scrollback: 0,
+            normal_dirty_since_snapshot: false,
+            normal_capture_phase: NormalCapturePhase::Inactive,
+            custom_scroll_region_active: false,
             alt_history_limit: scrollback_len,
             alt_history: Vec::new(),
             alt_scrollback: 0,
@@ -60,6 +72,17 @@ impl TerminalScreen {
 
     pub fn process_bytes(&mut self, bytes: &[u8]) {
         for &byte in bytes {
+            if self.screen_mode == ScreenMode::Normal
+                && !self.custom_scroll_region_active
+                && self.normal_capture_phase == NormalCapturePhase::PostRegion
+                && byte == 0x1b
+                && self.normal_dirty_since_snapshot
+            {
+                self.capture_normal_snapshot();
+                self.normal_dirty_since_snapshot = false;
+                self.normal_capture_phase = NormalCapturePhase::Inactive;
+            }
+
             if self.screen_mode == ScreenMode::Alternate
                 && byte == 0x1b
                 && self.alt_dirty_since_snapshot
@@ -69,10 +92,16 @@ impl TerminalScreen {
             }
 
             let previous_mode = self.screen_mode;
-            let _transition = self.track_screen_mode_byte(byte);
+            let rows = self.size().0;
+            self.track_escape_state_byte(byte, rows);
             self.parser.process(&[byte]);
 
             if previous_mode != ScreenMode::Alternate && self.screen_mode == ScreenMode::Alternate {
+                self.normal_history.clear();
+                self.normal_scrollback = 0;
+                self.normal_dirty_since_snapshot = false;
+                self.normal_capture_phase = NormalCapturePhase::Inactive;
+                self.custom_scroll_region_active = false;
                 self.alt_history.clear();
                 self.alt_scrollback = 0;
                 self.alt_dirty_since_snapshot = false;
@@ -85,7 +114,28 @@ impl TerminalScreen {
             } else {
                 self.alt_scrollback = 0;
                 self.alt_dirty_since_snapshot = false;
+
+                if self.custom_scroll_region_active {
+                    if byte_affects_normal_snapshot(byte) {
+                        self.normal_dirty_since_snapshot = true;
+                        self.normal_capture_phase = NormalCapturePhase::InRegion;
+                    }
+                } else if self.normal_capture_phase != NormalCapturePhase::Inactive {
+                    if byte_affects_normal_snapshot(byte) {
+                        self.normal_dirty_since_snapshot = true;
+                        self.normal_capture_phase = NormalCapturePhase::PostRegion;
+                    }
+                }
             }
+        }
+
+        if self.screen_mode == ScreenMode::Normal
+            && self.normal_capture_phase == NormalCapturePhase::PostRegion
+            && self.normal_dirty_since_snapshot
+        {
+            self.capture_normal_snapshot();
+            self.normal_dirty_since_snapshot = false;
+            self.normal_capture_phase = NormalCapturePhase::Inactive;
         }
 
         if self.screen_mode == ScreenMode::Alternate && self.alt_dirty_since_snapshot {
@@ -96,6 +146,13 @@ impl TerminalScreen {
 
     pub fn resize(&mut self, rows: u16, cols: u16) {
         self.parser.screen_mut().set_size(rows.max(1), cols.max(1));
+        self.custom_scroll_region_active = false;
+        if self.screen_mode == ScreenMode::Normal
+            && self.normal_capture_phase != NormalCapturePhase::Inactive
+        {
+            self.capture_normal_snapshot();
+            self.normal_capture_phase = NormalCapturePhase::Inactive;
+        }
         if self.screen_mode == ScreenMode::Alternate {
             self.capture_alternate_snapshot();
         }
@@ -114,6 +171,10 @@ impl TerminalScreen {
     }
 
     pub fn visible_rows(&self) -> Vec<String> {
+        if let Some(snapshot) = self.normal_history_snapshot() {
+            return snapshot_rows(&snapshot);
+        }
+
         if let Some(snapshot) = self.alternate_history_snapshot() {
             return snapshot_rows(&snapshot);
         }
@@ -123,6 +184,10 @@ impl TerminalScreen {
     }
 
     pub fn visible_lines(&self) -> Vec<ScreenLine> {
+        if let Some(snapshot) = self.normal_history_snapshot() {
+            return snapshot;
+        }
+
         if let Some(snapshot) = self.alternate_history_snapshot() {
             return snapshot;
         }
@@ -132,14 +197,28 @@ impl TerminalScreen {
 
     pub fn scrollback(&self) -> usize {
         match self.screen_mode {
-            ScreenMode::Normal => self.parser.screen().scrollback(),
+            ScreenMode::Normal => {
+                if !self.normal_history.is_empty() {
+                    self.normal_scrollback
+                } else {
+                    self.parser.screen().scrollback()
+                }
+            }
             ScreenMode::Alternate => self.alt_scrollback,
         }
     }
 
     pub fn set_scrollback(&mut self, rows: usize) {
         match self.screen_mode {
-            ScreenMode::Normal => self.parser.screen_mut().set_scrollback(rows),
+            ScreenMode::Normal => {
+                if !self.normal_history.is_empty() {
+                    let max_offset = self.normal_history.len().saturating_sub(1);
+                    self.normal_scrollback = rows.min(max_offset);
+                    self.parser.screen_mut().set_scrollback(0);
+                } else {
+                    self.parser.screen_mut().set_scrollback(rows);
+                }
+            }
             ScreenMode::Alternate => {
                 let max_offset = self.alt_history.len().saturating_sub(1);
                 self.alt_scrollback = rows.min(max_offset);
@@ -195,6 +274,40 @@ impl TerminalScreen {
             .and_then(|index| self.alt_history.get(index).cloned())
     }
 
+    fn normal_history_snapshot(&self) -> Option<Vec<ScreenLine>> {
+        if self.screen_mode != ScreenMode::Normal || self.normal_scrollback == 0 {
+            return None;
+        }
+
+        self.normal_history
+            .len()
+            .checked_sub(self.normal_scrollback + 1)
+            .and_then(|index| self.normal_history.get(index).cloned())
+    }
+
+    fn capture_normal_snapshot(&mut self) {
+        if self.normal_history_limit == 0 {
+            return;
+        }
+
+        let snapshot = self.current_screen_lines();
+        if snapshot_is_blank(&snapshot) {
+            return;
+        }
+        if self.normal_history.last() == Some(&snapshot) {
+            return;
+        }
+
+        self.normal_history.push(snapshot);
+        if self.normal_history.len() > self.normal_history_limit {
+            let overflow = self.normal_history.len() - self.normal_history_limit;
+            self.normal_history.drain(0..overflow);
+        }
+        self.normal_scrollback = self
+            .normal_scrollback
+            .min(self.normal_history.len().saturating_sub(1));
+    }
+
     fn capture_alternate_snapshot(&mut self) {
         if self.alt_history_limit == 0 {
             return;
@@ -216,9 +329,7 @@ impl TerminalScreen {
         self.alt_scrollback = self.alt_scrollback.min(self.alt_history.len().saturating_sub(1));
     }
 
-    fn track_screen_mode_byte(&mut self, byte: u8) -> EscapeTransition {
-        let mut transition = EscapeTransition::default();
-
+    fn track_escape_state_byte(&mut self, byte: u8, rows: u16) {
         match &mut self.escape_state {
             EscapeSequenceState::Ground => {
                 if byte == 0x1b {
@@ -236,9 +347,14 @@ impl TerminalScreen {
             }
             EscapeSequenceState::Csi(params) => {
                 if is_csi_final_byte(byte) {
-                    update_screen_mode_from_csi(&mut self.screen_mode, params, byte);
+                    update_screen_state_from_csi(
+                        &mut self.screen_mode,
+                        &mut self.custom_scroll_region_active,
+                        rows,
+                        params,
+                        byte,
+                    );
                     self.escape_state = EscapeSequenceState::Ground;
-                    transition.completed_csi = true;
                 } else if byte == 0x1b {
                     self.escape_state = EscapeSequenceState::Escape;
                 } else {
@@ -246,8 +362,6 @@ impl TerminalScreen {
                 }
             }
         }
-
-        transition
     }
 }
 
@@ -259,38 +373,76 @@ enum EscapeSequenceState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-struct EscapeTransition {
-    completed_csi: bool,
+enum NormalCapturePhase {
+    #[default]
+    Inactive,
+    InRegion,
+    PostRegion,
 }
 
 fn is_csi_final_byte(byte: u8) -> bool {
     (0x40..=0x7e).contains(&byte)
 }
 
-fn update_screen_mode_from_csi(screen_mode: &mut ScreenMode, params: &[u8], final_byte: u8) {
-    if final_byte != b'h' && final_byte != b'l' {
-        return;
-    }
-
-    let Some(rest) = params.strip_prefix(b"?") else {
-        return;
-    };
-
-    let enable = final_byte == b'h';
-    for param in rest.split(|byte| *byte == b';') {
-        if matches!(param, b"47" | b"1047" | b"1049") {
-            *screen_mode = if enable {
-                ScreenMode::Alternate
-            } else {
-                ScreenMode::Normal
+fn update_screen_state_from_csi(
+    screen_mode: &mut ScreenMode,
+    custom_scroll_region_active: &mut bool,
+    rows: u16,
+    params: &[u8],
+    final_byte: u8,
+) {
+    match final_byte {
+        b'h' | b'l' => {
+            let Some(rest) = params.strip_prefix(b"?") else {
+                return;
             };
-            return;
+
+            let enable = final_byte == b'h';
+            for param in rest.split(|byte| *byte == b';') {
+                if matches!(param, b"47" | b"1047" | b"1049") {
+                    *screen_mode = if enable {
+                        ScreenMode::Alternate
+                    } else {
+                        ScreenMode::Normal
+                    };
+                    return;
+                }
+            }
         }
+        b'r' => {
+            *custom_scroll_region_active = is_custom_scroll_region(params, rows);
+        }
+        _ => {}
     }
 }
 
 fn byte_affects_alternate_frame(byte: u8) -> bool {
     matches!(byte, 0x08 | b'\t' | b'\n' | 0x0d) || (0x20..=0x7e).contains(&byte) || byte >= 0x80
+}
+
+fn byte_affects_normal_snapshot(byte: u8) -> bool {
+    byte_affects_alternate_frame(byte)
+}
+
+fn is_custom_scroll_region(params: &[u8], rows: u16) -> bool {
+    if params.is_empty() {
+        return false;
+    }
+
+    let mut parts = params.split(|byte| *byte == b';');
+    let top = parse_csi_param(parts.next()).unwrap_or(1);
+    let bottom = parse_csi_param(parts.next()).unwrap_or(rows);
+
+    !(top == 1 && bottom == rows)
+}
+
+fn parse_csi_param(param: Option<&[u8]>) -> Option<u16> {
+    let param = param?;
+    if param.is_empty() {
+        return None;
+    }
+
+    std::str::from_utf8(param).ok()?.parse().ok()
 }
 
 fn screen_color(color: vt100::Color) -> ScreenColor {
@@ -334,6 +486,20 @@ mod tests {
         bytes.extend_from_slice(b"\x1b[?1049h");
         bytes.extend_from_slice(payload);
         bytes.extend_from_slice(b"\x1b[?1049l");
+        bytes
+    }
+
+    fn decstbm_frame_bytes(frame_label: &str, footer_label: &str) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"\x1b[2J\x1b[H");
+        bytes.extend_from_slice(b"hist1\r\nhist2\r\nhist3\r\nhist4\r\n");
+        bytes.extend_from_slice(footer_label.as_bytes());
+        bytes.extend_from_slice(b"\x1b[1;4r");
+        bytes.extend_from_slice(b"\x1b[4;1H\r\n");
+        bytes.extend_from_slice(frame_label.as_bytes());
+        bytes.extend_from_slice(b"\x1b[r");
+        bytes.extend_from_slice(b"\x1b[6;1H");
+        bytes.extend_from_slice(footer_label.as_bytes());
         bytes
     }
 
@@ -627,5 +793,40 @@ mod tests {
 
         assert!(previous.iter().any(|row| row.contains("same")));
         assert_eq!(screen.scrollback(), 1);
+    }
+
+    #[test]
+    fn decstbm_region_scroll_should_expose_previous_frame_in_local_scrollback() {
+        let mut screen = TerminalScreen::new(6, 20, 20);
+
+        screen.process_bytes(&decstbm_frame_bytes("frame1", "footer1"));
+        screen.process_bytes(&decstbm_frame_bytes("frame2", "footer2"));
+        screen.process_bytes(&decstbm_frame_bytes("frame3", "footer3"));
+
+        let live = screen.visible_rows();
+        screen.set_scrollback(1);
+        let previous = screen.visible_rows();
+        screen.set_scrollback(2);
+        let earlier = screen.visible_rows();
+
+        assert!(live.iter().any(|row| row.contains("frame3")));
+        assert!(previous.iter().any(|row| row.contains("frame2")));
+        assert!(earlier.iter().any(|row| row.contains("frame1")));
+    }
+
+    #[test]
+    fn decstbm_partial_repaints_should_not_mix_footer_from_newer_frame_into_older_history() {
+        let mut screen = TerminalScreen::new(6, 20, 20);
+
+        screen.process_bytes(&decstbm_frame_bytes("frame1", "footer1"));
+        screen.process_bytes(&decstbm_frame_bytes("frame2", "footer2"));
+        screen.process_bytes(&decstbm_frame_bytes("frame3", "footer3"));
+
+        screen.set_scrollback(1);
+        let previous = screen.visible_rows().join("\n");
+
+        assert!(previous.contains("frame2"));
+        assert!(previous.contains("footer2"));
+        assert!(!previous.contains("footer3"));
     }
 }

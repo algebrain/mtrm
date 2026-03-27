@@ -1014,6 +1014,44 @@ mod tests {
     }
 
     #[test]
+    fn scrolling_normal_screen_decstbm_history_shows_previous_frame_instead_of_mixed_rows() {
+        let temp = tempdir().unwrap();
+        let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+        let pane_id = manager.active_pane_id();
+
+        let frame = |frame_label: &str, footer_label: &str| {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"\x1b[2J\x1b[H");
+            bytes.extend_from_slice(b"hist1\r\nhist2\r\nhist3\r\nhist4\r\n");
+            bytes.extend_from_slice(footer_label.as_bytes());
+            bytes.extend_from_slice(b"\x1b[1;4r");
+            bytes.extend_from_slice(b"\x1b[4;1H\r\n");
+            bytes.extend_from_slice(frame_label.as_bytes());
+            bytes.extend_from_slice(b"\x1b[r");
+            bytes.extend_from_slice(b"\x1b[6;1H");
+            bytes.extend_from_slice(footer_label.as_bytes());
+            bytes
+        };
+
+        {
+            let pane = manager.active_tab_mut().panes.get_mut(&pane_id).unwrap();
+            pane.screen.process_bytes(&frame("frame1", "footer1"));
+            pane.screen.process_bytes(&frame("frame2", "footer2"));
+            pane.screen.process_bytes(&frame("frame3", "footer3"));
+        }
+
+        let live = manager.active_pane_text().unwrap();
+        assert!(live.contains("frame3"));
+        assert!(live.contains("footer3"));
+
+        manager.scroll_active_pane_up_lines(1).unwrap();
+        let previous = manager.active_pane_text().unwrap();
+        assert!(previous.contains("frame2"), "previous text:\n{previous}");
+        assert!(previous.contains("footer2"), "previous text:\n{previous}");
+        assert!(!previous.contains("footer3"), "previous text:\n{previous}");
+    }
+
+    #[test]
     fn active_pane_shell_receives_truecolor_hint_env() {
         let temp = tempdir().unwrap();
         let has_truecolor_hint = with_env_var_removed("COLORTERM", || {
