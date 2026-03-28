@@ -6,6 +6,10 @@
 
 It gives you tabs, pane splits, keyboard-driven focus movement, clipboard integration, and automatic persistence of layout and working directories.
 
+It is intentionally opinionated and built around my own workflow rather than traditional terminal conventions.
+
+In particular, `Ctrl+C` is used for copy, `Ctrl+V` for paste, and `Alt+X` for interrupt.
+
 This repository is primarily a working codebase for the tool itself, but it also contains the internal engineering notes used to evolve it.
 
 ## Platform Status
