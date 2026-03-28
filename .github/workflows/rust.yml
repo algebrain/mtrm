@@ -12,24 +12,10 @@ env:
 
 jobs:
   test-and-build:
-    strategy:
-      fail-fast: false # Одна ОС не тормозит остальные
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            artifact_name: mtrm-linux
-            binary_path: target/release/mtrm
-            deb_artifact_name: mtrm-linux-deb
-            deb_path: target/debian/mtrm.deb
-          - os: windows-latest
-            artifact_name: mtrm-windows
-            binary_path: target/release/mtrm.exe
-          - os: macos-latest
-            artifact_name: mtrm-macos
-            binary_path: target/release/mtrm
-
-    runs-on: ${{ matrix.os }}
+    # The project is currently Linux-first.
+    # Keep this workflow file as the place to reintroduce other targets later,
+    # but only the Ubuntu path is considered supported and enforced right now.
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
@@ -40,7 +26,7 @@ jobs:
     - name: Rust Cache
       uses: Swatinem/rust-cache@v2 # Маст-хэв для ускорения Rust
       with:
-        key: ${{ matrix.os }}-v1
+        key: ubuntu-latest-v1
 
     - name: Run tests
       run: cargo test --verbose
@@ -49,26 +35,23 @@ jobs:
       run: cargo build --release --verbose
 
     - name: Install cargo-deb
-      if: matrix.os == 'ubuntu-latest'
       run: cargo install cargo-deb --locked
 
     - name: Build Debian package
-      if: matrix.os == 'ubuntu-latest'
-      run: cargo deb -p mtrm --no-build --output ${{ matrix.deb_path }}
+      run: cargo deb -p mtrm --no-build --output target/debian/mtrm.deb
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.artifact_name }}
-        path: ${{ matrix.binary_path }}
+        name: mtrm-linux
+        path: target/release/mtrm
         if-no-files-found: error # На этом этапе лучше знать, если билд не создался
 
     - name: Upload Debian package
-      if: matrix.os == 'ubuntu-latest'
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.deb_artifact_name }}
-        path: ${{ matrix.deb_path }}
+        name: mtrm-linux-deb
+        path: target/debian/mtrm.deb
         if-no-files-found: error
 
   create-release:
