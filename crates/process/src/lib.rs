@@ -1044,7 +1044,8 @@ mod tests {
         let temp = tempdir().unwrap();
         let config = interactive_bash_config(temp.path().to_path_buf());
         let mut process = ShellProcess::spawn(config).unwrap();
-        let _ = wait_for_prompt(&mut process).unwrap();
+        let _ = read_until_contains(&mut process, "__MTRM_PROMPT__", Duration::from_secs(5))
+            .unwrap();
         process
             .write_all(b"sh -c 'stty raw -echo; sleep 5'\n")
             .unwrap();
