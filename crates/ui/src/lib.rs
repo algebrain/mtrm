@@ -134,17 +134,13 @@ fn active_tab_style(window_focused: bool) -> Style {
     }
 }
 
-fn active_pane_border_style(
-    window_focused: bool,
-) -> Style {
+fn active_pane_border_style(window_focused: bool) -> Style {
     if window_focused {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default()
-            .fg(Color::Red)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     }
 }
 

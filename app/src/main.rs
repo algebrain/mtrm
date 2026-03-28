@@ -2,6 +2,7 @@ use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
+use std::time::Instant;
 use std::time::UNIX_EPOCH;
 
 use crossterm::ExecutableCommand;
@@ -25,6 +26,8 @@ use ratatui::backend::Backend;
 use ratatui::backend::CrosstermBackend;
 use thiserror::Error;
 
+const ALT_PREFIX_TIMEOUT: Duration = Duration::from_millis(80);
+
 pub struct App {
     shell: ShellProcessConfig,
     keymap: Keymap,
@@ -33,6 +36,7 @@ pub struct App {
     should_quit: bool,
     ui_dirty: bool,
     window_focused: bool,
+    pending_alt_prefix_started_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +86,7 @@ impl App {
             should_quit: false,
             ui_dirty: true,
             window_focused: true,
+            pending_alt_prefix_started_at: None,
         })
     }
 
@@ -98,6 +103,7 @@ impl App {
                     should_quit: false,
                     ui_dirty: true,
                     window_focused: true,
+                    pending_alt_prefix_started_at: None,
                 })
             }
             None => Self::new_with_keymap(shell, keymap),
@@ -109,6 +115,10 @@ impl App {
         event: KeyEvent,
         clipboard: &mut dyn ClipboardBackend,
     ) -> Result<(), AppError> {
+        let Some(event) = self.resolve_alt_prefixed_key_event(event)? else {
+            return Ok(());
+        };
+
         if self.handle_terminal_navigation_key(event)? {
             return Ok(());
         }
@@ -221,6 +231,7 @@ impl App {
         clipboard: &mut dyn ClipboardBackend,
     ) -> Result<(), AppError> {
         while !self.should_quit {
+            self.flush_pending_alt_prefix_if_expired()?;
             self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
             if self.ui_dirty {
                 self.redraw(terminal)?;
@@ -259,6 +270,47 @@ impl App {
             }
         }
 
+        Ok(())
+    }
+
+    fn resolve_alt_prefixed_key_event(
+        &mut self,
+        event: KeyEvent,
+    ) -> Result<Option<KeyEvent>, AppError> {
+        if let Some(started_at) = self.pending_alt_prefix_started_at.take() {
+            if started_at.elapsed() <= ALT_PREFIX_TIMEOUT {
+                if let Some(synthetic) = synthesize_alt_prefixed_key_event(event) {
+                    return Ok(Some(synthetic));
+                }
+            }
+
+            self.tabs
+                .write_to_active_pane(b"\x1b")
+                .map_err(tabs_error)?;
+            self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
+        }
+
+        if event.modifiers == KeyModifiers::NONE && matches!(event.code, KeyCode::Esc) {
+            self.pending_alt_prefix_started_at = Some(Instant::now());
+            return Ok(None);
+        }
+
+        Ok(Some(event))
+    }
+
+    fn flush_pending_alt_prefix_if_expired(&mut self) -> Result<(), AppError> {
+        let Some(started_at) = self.pending_alt_prefix_started_at else {
+            return Ok(());
+        };
+        if started_at.elapsed() <= ALT_PREFIX_TIMEOUT {
+            return Ok(());
+        }
+
+        self.pending_alt_prefix_started_at = None;
+        self.tabs
+            .write_to_active_pane(b"\x1b")
+            .map_err(tabs_error)?;
+        self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
         Ok(())
     }
 
@@ -512,7 +564,9 @@ fn main() -> Result<(), AppError> {
     stdout
         .execute(EnterAlternateScreen)
         .map_err(terminal_io_error)?;
-    stdout.execute(EnableFocusChange).map_err(terminal_io_error)?;
+    stdout
+        .execute(EnableFocusChange)
+        .map_err(terminal_io_error)?;
     stdout
         .execute(EnableMouseCapture)
         .map_err(terminal_io_error)?;
@@ -839,6 +893,26 @@ fn tab_id_at_position(
     }
 
     None
+}
+
+fn synthesize_alt_prefixed_key_event(event: KeyEvent) -> Option<KeyEvent> {
+    let modifiers = match event.modifiers {
+        KeyModifiers::NONE => KeyModifiers::ALT,
+        KeyModifiers::SHIFT => KeyModifiers::ALT | KeyModifiers::SHIFT,
+        _ => return None,
+    };
+
+    match event.code {
+        KeyCode::Char(_) | KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => {
+            Some(KeyEvent {
+                code: event.code,
+                modifiers,
+                kind: event.kind,
+                state: event.state,
+            })
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -1531,6 +1605,222 @@ mod tests {
                     .unwrap_or(false)
         });
         assert!(ok);
+    }
+
+    #[test]
+    fn handle_key_event_esc_prefix_russian_interrupt_sends_interrupt() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        app.tabs.write_to_active_pane(b"sleep 5\n").unwrap();
+        thread::sleep(Duration::from_millis(150));
+        app.handle_key_event(key_event(KeyCode::Esc, KeyModifiers::NONE), &mut clipboard)
+            .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('ч'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.tabs
+            .write_to_active_pane(b"printf '__ESC_PREFIX_INTERRUPT__\\n'\n")
+            .unwrap();
+
+        let ok = wait_until(Duration::from_secs(3), || {
+            app.refresh_all_panes_output().is_ok()
+                && app
+                    .tabs
+                    .active_pane_text()
+                    .map(|text| text.contains("__ESC_PREFIX_INTERRUPT__"))
+                    .unwrap_or(false)
+        });
+        assert!(ok);
+    }
+
+    #[test]
+    #[serial]
+    fn alt_x_preserves_interactive_backspace_and_arrow_editing_after_late_tty_corruption() {
+        let temp = tempdir().unwrap();
+        let shell = interactive_bash_config(temp.path().to_path_buf());
+        let mut app = App::new(shell).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        let initial_output = wait_until(Duration::from_secs(3), || {
+            app.refresh_all_panes_output().is_ok()
+                && app
+                    .tabs
+                    .active_pane_text()
+                    .map(|text| !text.trim().is_empty())
+                    .unwrap_or(false)
+        });
+        assert!(
+            initial_output,
+            "interactive shell did not show initial output"
+        );
+
+        app.tabs
+            .write_to_active_pane(
+                b"sh -c 'trap \"(sleep 0.25; stty raw -echo </dev/tty >/dev/tty) & exit 130\" INT; while :; do sleep 1; done'\n",
+            )
+            .unwrap();
+        thread::sleep(Duration::from_millis(200));
+        app.handle_key_event(
+            key_event(KeyCode::Char('x'), KeyModifiers::ALT),
+            &mut clipboard,
+        )
+        .unwrap();
+
+        let prompt_returned = wait_until(Duration::from_secs(3), || {
+            app.refresh_all_panes_output().is_ok()
+                && app
+                    .tabs
+                    .active_pane_text()
+                    .map(|text| !text.trim().is_empty())
+                    .unwrap_or(false)
+        });
+        assert!(
+            prompt_returned,
+            "shell did not return visible prompt after Alt+X"
+        );
+
+        // Give the delayed tty-corruption path time to either fire or get cleaned up before
+        // we assess interactive editing on the recovered shell prompt.
+        thread::sleep(Duration::from_millis(450));
+        let _ = app.refresh_all_panes_output();
+
+        app.handle_key_event(
+            key_event(KeyCode::Char('e'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('c'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('h'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('o'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char(' '), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('a'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('b'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('c'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Backspace, KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('d'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Enter, KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+
+        let backspace_ok = wait_until(Duration::from_secs(3), || {
+            app.refresh_all_panes_output().is_ok()
+                && app
+                    .tabs
+                    .active_pane_text()
+                    .map(|text| text.contains("abd") && !text.contains("^H"))
+                    .unwrap_or(false)
+        });
+        assert!(
+            backspace_ok,
+            "backspace editing degraded after Alt+X and late tty corruption; pane text was {:?}",
+            app.tabs.active_pane_text().ok()
+        );
+
+        app.handle_key_event(
+            key_event(KeyCode::Char('e'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('c'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('h'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('o'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char(' '), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('a'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('c'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(key_event(KeyCode::Left, KeyModifiers::NONE), &mut clipboard)
+            .unwrap();
+        app.handle_key_event(key_event(KeyCode::Left, KeyModifiers::NONE), &mut clipboard)
+            .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Char('X'), KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+        app.handle_key_event(
+            key_event(KeyCode::Enter, KeyModifiers::NONE),
+            &mut clipboard,
+        )
+        .unwrap();
+
+        let ok = wait_until(Duration::from_secs(3), || {
+            app.refresh_all_panes_output().is_ok()
+                && app
+                    .tabs
+                    .active_pane_text()
+                    .map(|text| text.contains("Xac") && !text.contains("^[[D"))
+                    .unwrap_or(false)
+        });
+        assert!(
+            ok,
+            "left-arrow editing degraded after Alt+X and late tty corruption; pane text was {:?}",
+            app.tabs.active_pane_text().ok()
+        );
     }
 
     #[test]

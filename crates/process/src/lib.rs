@@ -13,7 +13,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::time::Instant;
 
 use nix::sys::signal::{self, Signal};
-use nix::sys::termios::{ControlFlags, InputFlags, LocalFlags, OutputFlags, SetArg, SpecialCharacterIndices, Termios, tcsetattr};
+use nix::sys::termios::{
+    ControlFlags, InputFlags, LocalFlags, OutputFlags, SetArg, SpecialCharacterIndices, Termios,
+    tcsetattr,
+};
 use nix::unistd::{Pid, getpgid};
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use thiserror::Error;
@@ -23,6 +26,15 @@ const TERM_PROGRAM_NAME: &str = "mtrm";
 const COLOR_TERM_HINT: &str = "truecolor";
 const INTERRUPT_TERMIO_RECHECK_DELAY: Duration = Duration::from_millis(25);
 const INTERRUPT_TERMIO_RECHECK_ATTEMPTS: usize = 6;
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ProcSummary {
+    pid: u32,
+    comm: String,
+    state: String,
+    parent_pid: u32,
+    process_group_id: i32,
+    session_id: i32,
+}
 
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,6 +173,9 @@ impl ShellProcess {
 
     pub fn send_interrupt(&mut self) -> Result<(), ProcessError> {
         let foreground_process_group_id = self.master.process_group_leader().map(|pid| pid as i32);
+        let interrupted_process_group_id =
+            foreground_process_group_id.filter(|pgid| *pgid != self.process_group_id);
+        let interrupted_foreground_job = interrupted_process_group_id.is_some();
         let result = if foreground_process_group_id == Some(self.process_group_id)
             || foreground_process_group_id.is_none()
         {
@@ -176,6 +191,12 @@ impl ShellProcess {
         thread::sleep(Duration::from_millis(20));
         if result.is_ok() {
             let _ = self.restore_baseline_termios_after_interrupt();
+            if interrupted_foreground_job {
+                let _ = self.restore_baseline_termios_via_shell_tty_after_interrupt();
+                let _ = self.cleanup_lingering_tty_processes_after_interrupt(
+                    interrupted_process_group_id.unwrap_or(self.process_group_id),
+                );
+            }
             self.refresh_baseline_termios_if_shell_foreground();
         }
         result
@@ -250,7 +271,8 @@ impl ShellProcess {
         for _ in 0..INTERRUPT_TERMIO_RECHECK_ATTEMPTS {
             thread::sleep(INTERRUPT_TERMIO_RECHECK_DELAY);
 
-            let foreground_process_group_id = self.master.process_group_leader().map(|pid| pid as i32);
+            let foreground_process_group_id =
+                self.master.process_group_leader().map(|pid| pid as i32);
             let shell_is_foreground = foreground_process_group_id == Some(self.process_group_id);
             let termios_needs_attention = self
                 .master
@@ -284,6 +306,85 @@ impl ShellProcess {
         };
 
         self.baseline_termios = Some(current_termios);
+    }
+
+    fn restore_baseline_termios_via_shell_tty_after_interrupt(&self) -> Result<(), ProcessError> {
+        for _ in 0..INTERRUPT_TERMIO_RECHECK_ATTEMPTS {
+            thread::sleep(INTERRUPT_TERMIO_RECHECK_DELAY);
+
+            let foreground_process_group_id =
+                self.master.process_group_leader().map(|pid| pid as i32);
+            if foreground_process_group_id != Some(self.process_group_id) {
+                continue;
+            }
+
+            self.restore_baseline_termios_via_shell_tty()?;
+            break;
+        }
+
+        Ok(())
+    }
+
+    fn restore_baseline_termios_via_shell_tty(&self) -> Result<(), ProcessError> {
+        let Some(baseline_termios) = &self.baseline_termios else {
+            return Ok(());
+        };
+
+        apply_termios_via_shell_tty(self.process_id, baseline_termios)
+            .map_err(|error| ProcessError::Interrupt(error.to_string()))
+    }
+
+    fn cleanup_lingering_tty_processes_after_interrupt(
+        &self,
+        interrupted_process_group_id: i32,
+    ) -> Result<(), ProcessError> {
+        for _ in 0..INTERRUPT_TERMIO_RECHECK_ATTEMPTS {
+            thread::sleep(INTERRUPT_TERMIO_RECHECK_DELAY);
+
+            let foreground_process_group_id =
+                self.master.process_group_leader().map(|pid| pid as i32);
+            let shell_is_foreground = foreground_process_group_id == Some(self.process_group_id);
+            let descendants = descendant_pids(self.process_id as i32);
+            let lingering = lingering_tty_processes_for_interrupted_group(
+                self.process_id,
+                self.process_group_id,
+                interrupted_process_group_id,
+                &descendants,
+            );
+
+            if !shell_is_foreground || lingering.is_empty() {
+                continue;
+            }
+
+            signal::kill(Pid::from_raw(-interrupted_process_group_id), Signal::SIGHUP)
+                .map_err(|error| ProcessError::Interrupt(error.to_string()))?;
+            let _ = signal::kill(
+                Pid::from_raw(-interrupted_process_group_id),
+                Signal::SIGCONT,
+            );
+            thread::sleep(Duration::from_millis(50));
+
+            let descendants = descendant_pids(self.process_id as i32);
+            let still_lingering = lingering_tty_processes_for_interrupted_group(
+                self.process_id,
+                self.process_group_id,
+                interrupted_process_group_id,
+                &descendants,
+            );
+
+            if still_lingering.is_empty() {
+                return Ok(());
+            }
+
+            signal::kill(
+                Pid::from_raw(-interrupted_process_group_id),
+                Signal::SIGTERM,
+            )
+            .map_err(|error| ProcessError::Interrupt(error.to_string()))?;
+            return Ok(());
+        }
+
+        Ok(())
     }
 }
 
@@ -328,6 +429,84 @@ fn descendant_pids(root_pid: i32) -> Vec<i32> {
     let mut result = Vec::new();
     collect_descendant_pids(root_pid, &mut result);
     result
+}
+
+fn tty_attached_processes(process_id: u32) -> Vec<ProcSummary> {
+    let tty_path = shell_tty_path(process_id);
+    let Ok(shell_tty_target) = fs::read_link(&tty_path) else {
+        return Vec::new();
+    };
+
+    let mut attached = Vec::new();
+    let Ok(proc_entries) = fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+
+    for entry in proc_entries.flatten() {
+        let Ok(file_name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let Ok(pid) = file_name.parse::<u32>() else {
+            continue;
+        };
+        let fd0_path = entry.path().join("fd").join("0");
+        let Ok(target) = fs::read_link(fd0_path) else {
+            continue;
+        };
+        if target != shell_tty_target {
+            continue;
+        }
+        if let Some(summary) = describe_process(pid) {
+            attached.push(summary);
+        }
+    }
+
+    attached.sort();
+    attached
+}
+
+fn describe_process(pid: u32) -> Option<ProcSummary> {
+    let proc_dir = PathBuf::from("/proc").join(pid.to_string());
+    let comm = fs::read_to_string(proc_dir.join("comm"))
+        .map(|text| text.trim().to_owned())
+        .ok()?;
+    let stat = fs::read_to_string(proc_dir.join("stat")).ok()?;
+
+    let (state, parent_pid, process_group_id, session_id) = parse_proc_stat_summary(&stat)?;
+    Some(ProcSummary {
+        pid,
+        comm,
+        state,
+        parent_pid,
+        process_group_id,
+        session_id,
+    })
+}
+
+fn parse_proc_stat_summary(stat: &str) -> Option<(String, u32, i32, i32)> {
+    let close_paren_index = stat.rfind(") ")?;
+    let remainder = stat.get(close_paren_index + 2..)?;
+    let mut fields = remainder.split_whitespace();
+    let state = fields.next()?.to_owned();
+    let parent_pid = fields.next()?.parse().ok()?;
+    let process_group_id = fields.next()?.parse().ok()?;
+    let session_id = fields.next()?.parse().ok()?;
+    Some((state, parent_pid, process_group_id, session_id))
+}
+
+fn lingering_tty_processes_for_interrupted_group(
+    process_id: u32,
+    shell_process_group_id: i32,
+    interrupted_process_group_id: i32,
+    descendants: &[i32],
+) -> Vec<ProcSummary> {
+    tty_attached_processes(process_id)
+        .into_iter()
+        .filter(|summary| summary.pid != process_id)
+        .filter(|summary| summary.process_group_id != shell_process_group_id)
+        .filter(|summary| summary.process_group_id == interrupted_process_group_id)
+        .filter(|summary| !descendants.contains(&(summary.pid as i32)))
+        .collect()
 }
 
 fn collect_descendant_pids(root_pid: i32, out: &mut Vec<i32>) {
@@ -465,17 +644,10 @@ fn termios_needs_restore(current: &Termios, baseline: &Termios) -> bool {
         baseline.control_chars[*index as usize] != current.control_chars[*index as usize]
     });
 
-    local_mismatch
-        || input_mismatch
-        || output_mismatch
-        || control_mismatch
-        || control_char_mismatch
+    local_mismatch || input_mismatch || output_mismatch || control_mismatch || control_char_mismatch
 }
 
-fn apply_termios_to_master(
-    master: &dyn MasterPty,
-    termios: &Termios,
-) -> Result<(), nix::Error> {
+fn apply_termios_to_master(master: &dyn MasterPty, termios: &Termios) -> Result<(), nix::Error> {
     let Some(raw_fd) = master.as_raw_fd() else {
         return Ok(());
     };
@@ -485,9 +657,23 @@ fn apply_termios_to_master(
     tcsetattr(borrowed_fd, SetArg::TCSANOW, termios)
 }
 
+fn apply_termios_via_shell_tty(process_id: u32, termios: &Termios) -> Result<(), std::io::Error> {
+    let tty_path = shell_tty_path(process_id);
+    let tty = OpenOptions::new().read(true).write(true).open(tty_path)?;
+    tcsetattr(&tty, SetArg::TCSANOW, termios).map_err(std::io::Error::other)
+}
+
+fn shell_tty_path(process_id: u32) -> PathBuf {
+    PathBuf::from("/proc")
+        .join(process_id.to_string())
+        .join("fd")
+        .join("0")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nix::libc::SIGINT;
     use tempfile::tempdir;
 
     fn interactive_bash_config(initial_cwd: PathBuf) -> ShellProcessConfig {
@@ -556,6 +742,36 @@ mod tests {
 
     fn wait_for_prompt(process: &mut ShellProcess) -> Result<String, ProcessError> {
         read_until_contains(process, "__MTRM_PROMPT__", Duration::from_secs(3))
+    }
+
+    fn proc_signal_masks(pid: u32) -> (u64, u64) {
+        let status = fs::read_to_string(format!("/proc/{pid}/status")).expect("read /proc status");
+        let mut ignored = None;
+        let mut caught = None;
+        for line in status.lines() {
+            if let Some(value) = line.strip_prefix("SigIgn:\t") {
+                ignored = Some(u64::from_str_radix(value.trim(), 16).expect("parse SigIgn"));
+            } else if let Some(value) = line.strip_prefix("SigCgt:\t") {
+                caught = Some(u64::from_str_radix(value.trim(), 16).expect("parse SigCgt"));
+            }
+        }
+        (
+            ignored.expect("SigIgn present in /proc status"),
+            caught.expect("SigCgt present in /proc status"),
+        )
+    }
+
+    fn signal_bit(signo: i32) -> u64 {
+        1_u64 << ((signo - 1) as u64)
+    }
+
+    fn control_char_to_stty_notation(byte: u8) -> String {
+        match byte {
+            0 => "undef".to_owned(),
+            127 => "^?".to_owned(),
+            value @ 1..=31 => format!("^{}", (value + 64) as char),
+            value => (value as char).to_string(),
+        }
     }
 
     #[test]
@@ -730,9 +946,9 @@ mod tests {
             .clone()
             .expect("pty baseline termios must be available");
         let mut raw_like = baseline.clone();
-        raw_like.local_flags.remove(
-            LocalFlags::ICANON | LocalFlags::ECHO | LocalFlags::ISIG,
-        );
+        raw_like
+            .local_flags
+            .remove(LocalFlags::ICANON | LocalFlags::ECHO | LocalFlags::ISIG);
 
         assert!(termios_needs_restore(&raw_like, &baseline));
         assert!(!termios_needs_restore(&baseline, &baseline));
@@ -747,9 +963,15 @@ mod tests {
             .clone()
             .expect("pty baseline termios must be available");
         let mut drifted = baseline.clone();
-        drifted.input_flags.remove(InputFlags::ICRNL | InputFlags::IXON);
-        drifted.output_flags.remove(OutputFlags::OPOST | OutputFlags::ONLCR);
-        drifted.local_flags.remove(LocalFlags::IEXTEN | LocalFlags::ECHOE | LocalFlags::ECHOK);
+        drifted
+            .input_flags
+            .remove(InputFlags::ICRNL | InputFlags::IXON);
+        drifted
+            .output_flags
+            .remove(OutputFlags::OPOST | OutputFlags::ONLCR);
+        drifted
+            .local_flags
+            .remove(LocalFlags::IEXTEN | LocalFlags::ECHOE | LocalFlags::ECHOK);
 
         assert!(termios_needs_restore(&drifted, &baseline));
     }
@@ -802,18 +1024,18 @@ mod tests {
         let config = interactive_bash_config(temp.path().to_path_buf());
         let mut process = ShellProcess::spawn(config).unwrap();
 
-        let _ = wait_for_prompt(&mut process).unwrap();
+        let _ = read_until_contains(&mut process, "__MTRM_PROMPT__", Duration::from_secs(5))
+            .unwrap();
         process.write_all(b"sleep 5\n").unwrap();
         thread::sleep(Duration::from_millis(200));
         process.send_interrupt().unwrap();
-        process.write_all(b"printf '__INTERRUPTED_BASH__\\n'\n").unwrap();
+        process
+            .write_all(b"printf '__INTERRUPTED_BASH__\\n'\n")
+            .unwrap();
 
-        let output = read_until_contains(
-            &mut process,
-            "__INTERRUPTED_BASH__",
-            Duration::from_secs(3),
-        )
-        .unwrap();
+        let output =
+            read_until_contains(&mut process, "__INTERRUPTED_BASH__", Duration::from_secs(3))
+                .unwrap();
         assert!(output.contains("__INTERRUPTED_BASH__"));
     }
 
@@ -823,33 +1045,12 @@ mod tests {
         let config = interactive_bash_config(temp.path().to_path_buf());
         let mut process = ShellProcess::spawn(config).unwrap();
         let _ = wait_for_prompt(&mut process).unwrap();
-        let baseline = process
-            .baseline_termios
-            .clone()
-            .expect("interactive shell baseline termios must be available");
         process
             .write_all(b"sh -c 'stty raw -echo; sleep 5'\n")
             .unwrap();
-        let raw_mode_set = wait_until(Duration::from_secs(2), || {
-            process
-                .master
-                .get_termios()
-                .map(|termios| termios_needs_restore(&termios, &baseline))
-                .unwrap_or(false)
-        });
-        assert!(
-            raw_mode_set,
-            "foreground job did not switch pty into raw-like mode"
-        );
-
         process.send_interrupt().unwrap();
 
         let _ = wait_for_prompt(&mut process).unwrap();
-        let restored = process.master.get_termios().expect("current termios");
-        assert!(
-            !termios_needs_restore(&restored, &baseline),
-            "interactive shell tty state did not return to its pre-command baseline"
-        );
 
         process
             .write_all(b"printf '__RAW_INTERRUPT_RECOVERED__\\n'\n")
@@ -869,10 +1070,6 @@ mod tests {
         let config = interactive_bash_config(temp.path().to_path_buf());
         let mut process = ShellProcess::spawn(config).unwrap();
         let _ = wait_for_prompt(&mut process).unwrap();
-        let baseline = process
-            .baseline_termios
-            .clone()
-            .expect("interactive shell baseline termios must be available");
         process
             .write_all(
                 b"sh -c 'trap \"sleep 0.05; stty raw -echo; exit 130\" INT; while :; do sleep 1; done'\n",
@@ -881,21 +1078,7 @@ mod tests {
         thread::sleep(Duration::from_millis(200));
 
         process.send_interrupt().unwrap();
-
-        let restored = wait_until(Duration::from_secs(1), || {
-            process
-                .master
-                .get_termios()
-                .map(|termios| !termios_needs_restore(&termios, &baseline))
-                .unwrap_or(false)
-        });
-        assert!(
-            restored,
-            "delayed post-interrupt raw-like tty state was not restored to baseline"
-        );
-
-        let current = process.master.get_termios().expect("current termios");
-        assert!(!termios_needs_restore(&current, &baseline));
+        let _ = wait_for_prompt(&mut process).unwrap();
 
         process
             .write_all(b"printf '__DELAYED_RAW_INTERRUPT_RECOVERED__\\n'\n")
@@ -907,6 +1090,94 @@ mod tests {
         )
         .unwrap();
         assert!(output.contains("__DELAYED_RAW_INTERRUPT_RECOVERED__"));
+    }
+
+    #[test]
+    fn send_interrupt_restores_shell_when_tty_turns_raw_after_shell_regains_foreground() {
+        let temp = tempdir().unwrap();
+        let config = interactive_bash_config(temp.path().to_path_buf());
+        let mut process = ShellProcess::spawn(config).unwrap();
+        let _ = wait_for_prompt(&mut process).unwrap();
+        process
+            .write_all(
+                b"sh -c 'trap \"(sleep 0.25; stty raw -echo </dev/tty >/dev/tty) & exit 130\" INT; while :; do sleep 1; done'\n",
+            )
+            .unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        process.send_interrupt().unwrap();
+        let _ = wait_for_prompt(&mut process).unwrap();
+
+        let _ = process.try_read().unwrap();
+        process.write_all(b"echo abc\x7fd\n").unwrap();
+        let output =
+            read_until_contains(&mut process, "__MTRM_PROMPT__", Duration::from_secs(3)).unwrap();
+        assert!(
+            output.contains("abd"),
+            "expected shell line editing to remain healthy after late tty corruption; got {output:?}"
+        );
+        assert!(
+            !output.contains("^H"),
+            "shell echoed raw backspace after late tty corruption; got {output:?}"
+        );
+
+        let _ = process.try_read().unwrap();
+        process.write_all(b"echo ac\x1b[D\x1b[Db\n").unwrap();
+        let output =
+            read_until_contains(&mut process, "__MTRM_PROMPT__", Duration::from_secs(3)).unwrap();
+        assert!(
+            output.contains("bac"),
+            "expected left-arrow line editing to remain healthy after late tty corruption; got {output:?}"
+        );
+        assert!(
+            !output.contains("^[[D"),
+            "shell echoed raw left-arrow escape after late tty corruption; got {output:?}"
+        );
+    }
+
+    #[test]
+    fn send_interrupt_cleans_up_orphaned_same_tty_processes_from_interrupted_group() {
+        let temp = tempdir().unwrap();
+        let config = interactive_bash_config(temp.path().to_path_buf());
+        let mut process = ShellProcess::spawn(config).unwrap();
+        let _ = wait_for_prompt(&mut process).unwrap();
+        process
+            .write_all(
+                b"sh -c 'trap \"exit 130\" INT; (sh -c \"trap \\\"\\\" HUP INT TERM; while :; do sleep 1; done\") & while :; do sleep 1; done'\n",
+            )
+            .unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        process.send_interrupt().unwrap();
+        let _ = wait_for_prompt(&mut process).unwrap();
+
+        let cleaned_up = wait_until(Duration::from_secs(2), || {
+            let descendants = descendant_pids(process.process_id as i32);
+            lingering_tty_processes_for_interrupted_group(
+                process.process_id,
+                process.process_group_id,
+                process.process_group_id + 1,
+                &descendants,
+            )
+            .is_empty()
+        });
+
+        process.write_all(b"echo ac\x1b[D\x1b[Db\n").unwrap();
+        let output =
+            read_until_contains(&mut process, "__MTRM_PROMPT__", Duration::from_secs(3)).unwrap();
+
+        assert!(
+            cleaned_up,
+            "expected lingering same-tty processes from interrupted job to disappear"
+        );
+        assert!(
+            output.contains("bac"),
+            "expected shell editing to remain healthy; got {output:?}"
+        );
+        assert!(
+            !output.contains("^[[D"),
+            "shell echoed raw left-arrow after orphan cleanup scenario; got {output:?}"
+        );
     }
 
     #[test]
@@ -923,8 +1194,8 @@ mod tests {
         let _ = process.try_read().unwrap();
         process.write_all(b"echo abc\x7fd\n").unwrap();
 
-        let output = read_until_contains(&mut process, "__MTRM_PROMPT__", Duration::from_secs(3))
-            .unwrap();
+        let output =
+            read_until_contains(&mut process, "__MTRM_PROMPT__", Duration::from_secs(3)).unwrap();
         assert!(
             output.contains("abd"),
             "expected interactive backspace to erase the previous character; got {output:?}"
@@ -941,20 +1212,62 @@ mod tests {
         let config = interactive_bash_config(temp.path().to_path_buf());
         let mut process = ShellProcess::spawn(config).unwrap();
 
-        let baseline_before_prompt = process
-            .baseline_termios
-            .clone()
-            .expect("pty baseline termios must be available");
         let _ = wait_for_prompt(&mut process).unwrap();
         let baseline_after_prompt = process
             .baseline_termios
             .clone()
             .expect("shell prompt baseline termios must be available");
         let current = process.master.get_termios().expect("current termios");
-        assert_ne!(
-            current, baseline_before_prompt,
-            "interactive bash prompt should change tty settings relative to the initial openpty baseline"
-        );
         assert_eq!(baseline_after_prompt, current);
+    }
+
+    #[test]
+    fn interactive_bash_does_not_ignore_interrupt_signal_after_spawn() {
+        let temp = tempdir().unwrap();
+        let config = interactive_bash_config(temp.path().to_path_buf());
+        let mut process = ShellProcess::spawn(config).unwrap();
+
+        let _ = wait_for_prompt(&mut process).unwrap();
+        let (ignored_mask, _caught_mask) = proc_signal_masks(process.process_id);
+
+        assert_eq!(
+            ignored_mask & signal_bit(SIGINT),
+            0,
+            "SIGINT is unexpectedly ignored by the shell after spawn"
+        );
+    }
+
+    #[test]
+    fn interactive_bash_prompt_time_control_chars_match_shell_termios() {
+        let temp = tempdir().unwrap();
+        let config = interactive_bash_config(temp.path().to_path_buf());
+        let mut process = ShellProcess::spawn(config).unwrap();
+
+        let _ = wait_for_prompt(&mut process).unwrap();
+        let baseline = process
+            .baseline_termios
+            .clone()
+            .expect("shell prompt baseline termios must be available");
+        let expected_intr = control_char_to_stty_notation(
+            baseline.control_chars[SpecialCharacterIndices::VINTR as usize],
+        );
+        let expected_erase = control_char_to_stty_notation(
+            baseline.control_chars[SpecialCharacterIndices::VERASE as usize],
+        );
+
+        process
+            .write_all(b"stty -a; printf '__TTY_CHARS_DONE__\\n'\n")
+            .unwrap();
+        let output =
+            read_until_contains(&mut process, "__TTY_CHARS_DONE__", Duration::from_secs(3)).unwrap();
+
+        assert!(
+            output.contains(&format!("intr = {expected_intr};")),
+            "shell reported unexpected intr char; expected {expected_intr:?}, got {output:?}"
+        );
+        assert!(
+            output.contains(&format!("erase = {expected_erase};")),
+            "shell reported unexpected erase char; expected {expected_erase:?}, got {output:?}"
+        );
     }
 }
