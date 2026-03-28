@@ -11,6 +11,7 @@
 ```rust
 use crossterm::event::{KeyEvent, KeyModifiers};
 use mtrm_core::AppCommand;
+use mtrm_keymap::Keymap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputAction {
@@ -20,6 +21,7 @@ pub enum InputAction {
 }
 
 pub fn map_key_event(event: KeyEvent) -> InputAction;
+pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputAction;
 ```
 
 Точное обязательное поведение:
@@ -31,6 +33,7 @@ pub fn map_key_event(event: KeyEvent) -> InputAction;
 - `Alt+Right` -> команда перемещения фокуса вправо
 - `Alt+Up` -> команда перемещения фокуса вверх
 - `Alt+Down` -> команда перемещения фокуса вниз
+- `Alt+<printable>` без совпадения с командой -> `PtyBytes`, начинающиеся с `0x1b`
 - обычные печатные символы -> `PtyBytes`
 - служебные клавиши, которые не поддерживаются, -> `Ignore`
 
@@ -39,6 +42,7 @@ pub fn map_key_event(event: KeyEvent) -> InputAction;
 ## Допустимые зависимости
 
 - `mtrm-core`;
+- `mtrm-keymap`;
 - `crossterm`;
 - стандартная библиотека Rust.
 

@@ -79,7 +79,7 @@ mtrm --debug-log /tmp/mtrm-pty.log
 
 ## Default Keybindings
 
-- `Ctrl+C`: copy pane text
+- `Ctrl+C`: copy selected text
 - `Ctrl+V`: paste from the system clipboard
 - `Alt+X`: send `SIGINT` to the active process
 - `Alt+-`: split the active pane left/right
@@ -117,6 +117,8 @@ Important files:
 ```
 
 Scroll position is not persisted. After restart, panes reopen at the live bottom.
+
+When the terminal window loses focus, the active tab and active pane border turn red.
 
 ## Documentation
 

@@ -130,3 +130,46 @@
 - до появления альтернативной стратегии для macOS или более мягкого fallback поведение на macOS будет ломаться не локально, а каскадно
 
 Иными словами, проблема на macOS сейчас не в UI и не в тестах как таковых, а в том, что snapshot persistence зависит от платформенно-непереносимой функции `current_dir()`.
+
+## 2026-03-28
+
+### Alt+X recovery path remains Unix/Linux-first
+
+Финальный стабильный фикс `Alt+X` подтвердил, что путь прерывания foreground job и post-interrupt recovery в `crates/process` сейчас по сути остается Unix-first, а отдельные части уже прямо Linux-specific.
+
+Сейчас этот путь опирается на:
+
+- process groups и Unix signals (`SIGINT`, `SIGHUP`, `SIGCONT`, `SIGTERM`);
+- определение foreground process group через PTY/process-group semantics;
+- восстановление baseline `termios` после interrupt;
+- Linux-only чтение `/proc` для поиска lingering same-TTY процессов;
+- Linux-only доступ к shell tty через `/proc/<pid>/fd/0`.
+
+Практически это означает, что текущий рабочий `Alt+X`-фикс состоит не только из "послать SIGINT", а из нескольких платформенно-зависимых шагов:
+
+- доставить interrupt в foreground job;
+- дождаться возврата shell в foreground;
+- при необходимости восстановить baseline `termios`;
+- дополнительно применить baseline через shell tty;
+- очистить lingering same-TTY процессы из interrupted group.
+
+Конкретные места:
+
+- foreground-aware interrupt delivery в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
+- shell-tty restore path в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
+- lingering same-TTY cleanup в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
+- Linux-only `/proc` introspection helper-ы в [../../crates/process/src/lib.rs](../../crates/process/src/lib.rs)
+
+### Practical conclusion after the Alt+X fix
+
+С точки зрения переносимости это усиливает предыдущий вывод:
+
+- `portable-pty` дает базовый кроссплатформенный PTY слой;
+- но надежный interrupt/recovery path в текущем виде уже выражен через Unix job control и Linux `/proc`.
+
+Значит, для реальной переносимости сюда позже нужен не один `cfg` вокруг отдельного сигнала, а платформенный слой как минимум для:
+
+- доставки interrupt активной foreground job;
+- post-interrupt terminal recovery;
+- поиска и cleanup lingering same-TTY процессов;
+- доступа к shell-owned tty вне Linux `/proc`.
