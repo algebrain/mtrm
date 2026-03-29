@@ -129,6 +129,7 @@ When the terminal window loses focus, the active tab and active pane border turn
 User-facing documents:
 
 - [User Guide](docs/USER_GUIDE.md)
+- [Why Not tmux](docs/WHY.md)
 - [Application README](app/README.md)
 
 Engineering documents:

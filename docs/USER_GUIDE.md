@@ -1,16 +1,16 @@
-# Руководство по использованию `mtrm`
+# `mtrm` User Guide
 
-Это краткая пользовательская инструкция: как запускать `mtrm`, какие клавиши он понимает и как устроено сохранение состояния.
+This is a short user guide: how to start `mtrm`, which keys it handles, and how state persistence works.
 
-## Запуск
+## Launching
 
-Из корня проекта:
+From the repository root:
 
 ```bash
 cargo run -p mtrm
 ```
 
-Также доступны служебные флаги:
+The binary also supports a few direct flags:
 
 ```bash
 mtrm --help
@@ -18,138 +18,138 @@ mtrm --version
 mtrm --debug-log /tmp/mtrm-pty.log
 ```
 
-- `--help` печатает краткую справку и завершает работу;
-- `--version` печатает строку версии и завершает работу;
-- `--debug-log PATH` пишет сырые чанки PTY в указанный файл, что удобно для диагностики проблем терминальной эмуляции и fullscreen TUI.
+- `--help` prints a short help message and exits;
+- `--version` prints the version string and exits;
+- `--debug-log PATH` writes raw PTY chunks into the given file, which is useful when diagnosing terminal emulation issues and fullscreen TUI behavior.
 
-## Что делает программа
+## What the Program Does
 
-`mtrm` запускает локальные оболочки в псевдотерминалах и дает:
+`mtrm` runs local shells in pseudoterminals and provides:
 
-- вкладки;
-- разбиение окна на несколько областей;
-- перемещение фокуса между областями;
-- системный буфер обмена;
-- автоматическое сохранение раскладки и рабочих каталогов.
+- tabs;
+- pane splits;
+- keyboard-based focus movement between panes;
+- system clipboard integration;
+- automatic persistence of layout and working directories.
 
-При обычном запуске оболочка внутри панели поднимается в интерактивном режиме, поэтому стартовый вывод shell и вводимая строка должны быть видны сразу.
+On a normal start, the shell inside a pane runs in interactive mode, so the initial shell output and the command line should be visible immediately.
 
-Текущее ограничение: курсор пока показывается упрощенно, через визуальное выделение текущей ячейки.
+Current limitation: the cursor is still shown in a simplified way, by visually highlighting the current cell.
 
-После перезапуска программа восстанавливает:
+After restart, the program restores:
 
-- набор вкладок;
-- раскладку в каждой вкладке;
-- активную вкладку;
-- активное окно;
-- рабочий каталог каждого окна.
+- the set of tabs;
+- the layout inside each tab;
+- the active tab;
+- the active pane;
+- the working directory of each pane.
 
-Она не восстанавливает старые живые процессы. При запуске создаются новые оболочки.
+It does not restore old live processes. On startup it creates fresh shells.
 
-## Горячие клавиши
+## Keybindings
 
-- `Ctrl+C` — копировать выделенный текст активного окна в системный буфер обмена.
-- `Ctrl+V` — вставить текст из системного буфера в активное окно.
-- `Alt+X` — отправить `SIGINT` в активный процесс.
-- `Alt+-` — разделить активную панель на левую и правую.
-- `Alt+=` — разделить активную панель на верхнюю и нижнюю.
-- `Alt+Q` — закрыть активную панель, если она не последняя во вкладке.
-- `Alt+T` — создать новую вкладку.
-- `Alt+,` — перейти на предыдущую вкладку.
-- `Alt+.` — перейти на следующую вкладку.
-- `Alt+W` — закрыть текущую вкладку, если она не последняя.
-- `Alt+Shift+Q` — сохранить состояние и выйти из `mtrm`.
-- `Left` / `Right` / `Up` / `Down` — отправить стрелки в активную оболочку.
-- `Alt+Left` — перевести фокус влево.
-- `Alt+Right` — перевести фокус вправо.
-- `Alt+Up` — перевести фокус вверх.
-- `Alt+Down` — перевести фокус вниз.
-- `Shift+Up` — прокрутить историю активной панели на одну строку вверх.
-- `Shift+Down` — прокрутить историю активной панели на одну строку вниз.
-- `Shift+PageUp` — прокрутить историю активной панели на один экран вверх.
-- `Shift+PageDown` — прокрутить историю активной панели на один экран вниз.
-- `End` — вернуться к живому хвосту активной панели.
+- `Ctrl+C` copies the selected text from the active pane into the system clipboard.
+- `Ctrl+V` pastes text from the system clipboard into the active pane.
+- `Alt+X` sends `SIGINT` to the active process.
+- `Alt+-` splits the active pane into left and right.
+- `Alt+=` splits the active pane into top and bottom.
+- `Alt+Q` closes the active pane if it is not the last pane in the tab.
+- `Alt+T` creates a new tab.
+- `Alt+,` switches to the previous tab.
+- `Alt+.` switches to the next tab.
+- `Alt+W` closes the current tab if it is not the last one.
+- `Alt+Shift+Q` saves state and quits `mtrm`.
+- `Left` / `Right` / `Up` / `Down` send arrows into the active shell.
+- `Alt+Left` moves focus left.
+- `Alt+Right` moves focus right.
+- `Alt+Up` moves focus up.
+- `Alt+Down` moves focus down.
+- `Shift+Up` scrolls the active pane history up by one line.
+- `Shift+Down` scrolls the active pane history down by one line.
+- `Shift+PageUp` scrolls the active pane history up by one screen.
+- `Shift+PageDown` scrolls the active pane history down by one screen.
+- `End` returns to the live bottom of the active pane.
 
-По умолчанию буквенные сочетания вроде `Alt+T`, `Alt+Q`, `Alt+W`, `Alt+X` и `Alt+Shift+Q` работают для латинских символов, а значит уже подходят для английской, испанской и португальской раскладок, и дополнительно покрывают русскую раскладку, французский AZERTY и греческую раскладку.
-Точный набор символов для буквенных сочетаний хранится в `~/.mtrm/keymap.toml`. Если нужна другая раскладка, в этот файл можно добавить ее символы.
+By default, letter-based shortcuts like `Alt+T`, `Alt+Q`, `Alt+W`, `Alt+X`, and `Alt+Shift+Q` work for Latin letters, which already covers English, Spanish, and Portuguese layouts, and additionally includes Russian, French AZERTY, and Greek layouts.
+The exact set of symbols for letter-based shortcuts is stored in `~/.mtrm/keymap.toml`. If you need another layout, you can add its symbols there.
 
-## Прокрутка истории
+## Scrollback
 
-По умолчанию активная панель показывает самый свежий вывод.
+By default, the active pane shows the newest output.
 
-Если прокрутить историю вверх, панель переходит в режим просмотра:
+If you scroll history upward, the pane enters view mode:
 
-- новый вывод продолжает накапливаться;
-- экран не прыгает вниз автоматически;
-- курсор в этом режиме не показывается.
+- new output continues to accumulate;
+- the screen does not jump down automatically;
+- the cursor is hidden in that mode.
 
-Вернуться к живому хвосту можно:
+You can return to the live bottom by:
 
-- клавишей `End`;
-- или просто начав ввод в активную панель.
+- pressing `End`;
+- or simply starting to type into the active pane.
 
-## Поведение `Ctrl+C`
+## `Ctrl+C` Behavior
 
-В `mtrm` сочетание `Ctrl+C` не прерывает процесс.
+In `mtrm`, `Ctrl+C` does not interrupt the process.
 
-Оно используется для копирования текущего выделения. Если выделения нет, в буфер ничего не копируется. Для прерывания процесса нужно использовать:
+It is used to copy the current selection. If nothing is selected, nothing is copied into the clipboard. To interrupt a process, use:
 
 - `Alt+X`
 
-## Сохранение состояния
+## State Persistence
 
-Сохранение работает автоматически.
+State is saved automatically.
 
-При первом сохранении программа создает каталог:
+On the first save, the program creates:
 
 ```text
 ~/.mtrm
 ```
 
-Файл состояния хранится здесь:
+The state file is stored here:
 
 ```text
 ~/.mtrm/state.toml
 ```
 
-Файл буквенных горячих клавиш хранится здесь:
+The letter-based keybinding file is stored here:
 
 ```text
 ~/.mtrm/keymap.toml
 ```
 
-Вручную настраивать путь не нужно.
+You do not need to configure the path manually.
 
-При штатном выходе через `Alt+Shift+Q` состояние тоже сохраняется перед завершением программы.
+On a normal exit through `Alt+Shift+Q`, the state is also saved before the program terminates.
 
-Положение прокрутки истории не сохраняется.
+Scroll position is not persisted.
 
-## Потеря фокуса окна
+## Window Focus Loss
 
-Если внешнее окно терминала теряет фокус, активная вкладка и рамка активной панели подсвечиваются красным.
+If the outer terminal window loses focus, the active tab and the active pane border are highlighted in red.
 
-## Строка версии
+## Version String
 
-`mtrm --version` печатает:
+`mtrm --version` prints:
 
-- последний локальный git tag;
-- через пробел время модификации текущего исполняемого файла в Unix seconds.
+- the latest local git tag;
+- after a space, the modification time of the current executable in Unix seconds.
 
-Это полезно, когда нужно быстро понять, какой именно установленный бинарь сейчас запускается.
+This is useful when you need to quickly understand which installed binary is actually being run.
 
-## Если нужно начать с чистого состояния
+## If You Want to Start from a Clean State
 
-Достаточно удалить файл состояния:
+It is enough to delete the state file:
 
 ```bash
 rm ~/.mtrm/state.toml
 ```
 
-При следующем запуске `mtrm` создаст новую пустую рабочую среду.
+On the next start, `mtrm` will create a new empty workspace.
 
-## Где смотреть инженерные документы
+## Where to Read Engineering Documents
 
-Если нужна не пользовательская, а внутренняя документация:
+If you need internal documentation rather than user documentation:
 
-- [Архитектурный обзор](engineering/ARCHITECTURE.md)
-- [Порядок реализации](engineering/IMPLEMENTATION_ORDER.md)
+- [Architecture Overview](engineering/ARCHITECTURE.md)
+- [Implementation Order](engineering/IMPLEMENTATION_ORDER.md)

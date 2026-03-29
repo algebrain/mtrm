@@ -90,7 +90,7 @@
 ## Смежные документы
 
 - Пользовательский обзор проекта: [../README.md](../README.md)
-- Пользовательское руководство: [../docs/USER_GUIDE.md](../docs/USER_GUIDE.md)
+- Пользовательское руководство: [../docs/USER_GUIDE.ru.md](../docs/USER_GUIDE.ru.md)
 - Архитектурный обзор: [../docs/engineering/ARCHITECTURE.md](../docs/engineering/ARCHITECTURE.md)
 
 ## Строка версии
