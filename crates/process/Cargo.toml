@@ -7,9 +7,7 @@ edition = "2024"
 path = "src/lib.rs"
 
 [dependencies]
-portable-pty = "0.9"
-thiserror = "2"
-nix = { version = "0.28", features = ["signal", "process", "term"] }
+prux = { git = "https://github.com/algebrain/prux", rev = "3f5a514399423faa4b58b1d4aa68f95bc6d1b8a5" }
 
 [dev-dependencies]
 tempfile = "3"
