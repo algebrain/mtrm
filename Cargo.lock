@@ -713,6 +713,7 @@ dependencies = [
  "mtrm-core",
  "proptest",
  "serde",
+ "serde_yaml",
 ]
 
 [[package]]

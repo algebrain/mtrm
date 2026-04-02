@@ -39,6 +39,14 @@ pub enum FocusMoveDirection {
     Down,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResizeDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClipboardCommand {
     CopySelection,
@@ -50,6 +58,7 @@ pub enum LayoutCommand {
     SplitFocused(SplitDirection),
     CloseFocusedPane,
     MoveFocus(FocusMoveDirection),
+    ResizeFocused(ResizeDirection),
     ScrollUpLines(u16),
     ScrollDownLines(u16),
     ScrollUpPages(u16),
@@ -176,6 +185,7 @@ mod tests {
             AppCommand::Clipboard(ClipboardCommand::PasteFromSystem),
             AppCommand::Layout(LayoutCommand::SplitFocused(SplitDirection::Horizontal)),
             AppCommand::Layout(LayoutCommand::MoveFocus(FocusMoveDirection::Left)),
+            AppCommand::Layout(LayoutCommand::ResizeFocused(ResizeDirection::Left)),
             AppCommand::Layout(LayoutCommand::CloseFocusedPane),
             AppCommand::Layout(LayoutCommand::ScrollUpLines(1)),
             AppCommand::Layout(LayoutCommand::ScrollDownLines(1)),

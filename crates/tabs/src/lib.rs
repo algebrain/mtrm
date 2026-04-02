@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use mtrm_core::{FocusMoveDirection, IdAllocator, PaneId, SplitDirection, TabId};
+use mtrm_core::{FocusMoveDirection, IdAllocator, PaneId, ResizeDirection, SplitDirection, TabId};
 use mtrm_layout::{LayoutError, LayoutTree, Rect};
 use mtrm_process::{ShellProcess, ShellProcessConfig};
 use mtrm_session::{PaneSnapshot, SessionSnapshot, TabSnapshot};
@@ -277,6 +277,18 @@ impl TabManager {
             .runtime
             .layout
             .move_focus(direction)
+            .map_err(TabsError::Layout)
+    }
+
+    pub fn resize_active_pane(
+        &mut self,
+        direction: ResizeDirection,
+        area: Rect,
+    ) -> Result<bool, TabsError> {
+        self.active_tab_mut()
+            .runtime
+            .layout
+            .resize_focused(direction, area)
             .map_err(TabsError::Layout)
     }
 
@@ -775,6 +787,37 @@ mod tests {
         assert_eq!(pane_id, PaneId::new(1));
         assert_eq!(placements.len(), 2);
         assert!(manager.pane_has_empty_screen(pane_id).unwrap());
+    }
+
+    #[test]
+    fn resize_active_pane_changes_layout_by_one_cell() {
+        let temp = tempdir().unwrap();
+        let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+        manager
+            .split_active_pane(
+                SplitDirection::Vertical,
+                &shell_config(temp.path().to_path_buf()),
+            )
+            .unwrap();
+        manager.focus_pane(PaneId::new(0)).unwrap();
+
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 12,
+        };
+        let before = manager.placements(area).unwrap();
+
+        let changed = manager
+            .resize_active_pane(ResizeDirection::Right, area)
+            .unwrap();
+        let after = manager.placements(area).unwrap();
+
+        assert!(changed);
+        assert_eq!(after[0].1.width, before[0].1.width + 1);
+        assert_eq!(after[1].1.width + 1, before[1].1.width);
+        assert_eq!(manager.active_pane_id(), PaneId::new(0));
     }
 
     #[test]

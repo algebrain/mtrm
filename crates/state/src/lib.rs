@@ -13,7 +13,8 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use thiserror::Error;
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
-const STATE_VERSION: &str = "0.0.1";
+const STATE_VERSION: &str = "0.1.0";
+const LEGACY_YAML_STATE_VERSION: &str = "0.0.1";
 const LEGACY_STATE_FILE_NAME: &str = "state.toml";
 
 #[derive(Debug, Error)]
@@ -177,12 +178,15 @@ impl PersistedStateFile {
     }
 
     fn into_snapshot(self) -> Result<SessionSnapshot, StateError> {
-        if self.version != STATE_VERSION {
+        if self.version != STATE_VERSION && self.version != LEGACY_YAML_STATE_VERSION {
             return Err(StateError::Deserialize(format!(
                 "unsupported state version: {}",
                 self.version
             )));
         }
+        // Для legacy YAML 0.0.1 отдельный переходник на уровне state-файла не нужен:
+        // нижележащий layout-layer умеет читать старую бинарную форму split-узлов
+        // (`first`/`second`) и сам приводит ее к новой n-арной модели.
         serde_json::from_value(JsonValue::Object(self.snapshot))
             .map_err(|error| StateError::Deserialize(error.to_string()))
     }
@@ -281,7 +285,7 @@ mod tests {
         save_state_to_path(&path, &snapshot).unwrap();
         let written = fs::read_to_string(&path).unwrap();
 
-        assert!(written.contains("version: 0.0.1"));
+        assert!(written.contains("version: 0.1.0"));
     }
 
     #[test]
@@ -347,7 +351,7 @@ mod tests {
         let temp = tempdir().unwrap();
         let path = temp.path().join("state.yaml");
         let yaml = serialize_yaml_state(&sample_snapshot()).unwrap();
-        fs::write(&path, yaml.replacen("0.0.1", "0.0.2", 1)).unwrap();
+        fs::write(&path, yaml.replacen("0.1.0", "0.0.2", 1)).unwrap();
 
         let error = load_state_from_path(&path).unwrap_err();
 

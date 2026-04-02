@@ -1,7 +1,7 @@
 //! Нормализация клавиатурного ввода и преобразование его в команды программы.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use mtrm_core::{AppCommand, ClipboardCommand, FocusMoveDirection, LayoutCommand};
+use mtrm_core::{AppCommand, ClipboardCommand, FocusMoveDirection, LayoutCommand, ResizeDirection};
 use mtrm_keymap::Keymap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,12 +134,24 @@ pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputActio
     }
 
     if event.modifiers == (KeyModifiers::ALT | KeyModifiers::SHIFT) {
-        return if matches_char(event.code, |ch| keymap.matches_quit(ch)) {
+        return match event.code {
+            KeyCode::Left => InputAction::Command(AppCommand::Layout(
+                LayoutCommand::ResizeFocused(ResizeDirection::Left),
+            )),
+            KeyCode::Right => InputAction::Command(AppCommand::Layout(
+                LayoutCommand::ResizeFocused(ResizeDirection::Right),
+            )),
+            KeyCode::Up => InputAction::Command(AppCommand::Layout(
+                LayoutCommand::ResizeFocused(ResizeDirection::Up),
+            )),
+            KeyCode::Down => InputAction::Command(AppCommand::Layout(
+                LayoutCommand::ResizeFocused(ResizeDirection::Down),
+            )),
+            _ if matches_char(event.code, |ch| keymap.matches_quit(ch)) => {
             InputAction::Command(AppCommand::Quit)
-        } else if let KeyCode::Char(ch) = event.code {
-            InputAction::PtyBytes(alt_char_bytes(ch))
-        } else {
-            InputAction::Ignore
+            }
+            KeyCode::Char(ch) => InputAction::PtyBytes(alt_char_bytes(ch)),
+            _ => InputAction::Ignore,
         };
     }
 
@@ -260,6 +272,37 @@ mod tests {
         assert_eq!(
             map_key_event(key_event(KeyCode::End, KeyModifiers::NONE)),
             InputAction::Command(AppCommand::Layout(LayoutCommand::ScrollToBottom))
+        );
+    }
+
+    #[test]
+    fn maps_alt_shift_arrows_to_resize_commands() {
+        assert_eq!(
+            map_key_event(key_event(KeyCode::Left, KeyModifiers::ALT | KeyModifiers::SHIFT)),
+            InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
+                ResizeDirection::Left
+            )))
+        );
+        assert_eq!(
+            map_key_event(key_event(
+                KeyCode::Right,
+                KeyModifiers::ALT | KeyModifiers::SHIFT
+            )),
+            InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
+                ResizeDirection::Right
+            )))
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::Up, KeyModifiers::ALT | KeyModifiers::SHIFT)),
+            InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
+                ResizeDirection::Up
+            )))
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::Down, KeyModifiers::ALT | KeyModifiers::SHIFT)),
+            InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
+                ResizeDirection::Down
+            )))
         );
     }
 

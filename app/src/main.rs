@@ -38,6 +38,7 @@ pub struct App {
     window_focused: bool,
     pending_alt_prefix_started_at: Option<Instant>,
     rename: Option<RenameState>,
+    last_content_area: mtrm_layout::Rect,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +86,19 @@ struct RenameState {
     cursor: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LayoutCommandResult {
+    persist: bool,
+    ui_dirty: bool,
+}
+
+const DEFAULT_CONTENT_AREA: mtrm_layout::Rect = mtrm_layout::Rect {
+    x: 0,
+    y: 0,
+    width: 80,
+    height: 23,
+};
+
 impl App {
     pub fn new(shell: ShellProcessConfig) -> Result<Self, AppError> {
         Self::new_with_keymap(shell, Keymap::default())
@@ -102,6 +116,7 @@ impl App {
             window_focused: true,
             pending_alt_prefix_started_at: None,
             rename: None,
+            last_content_area: DEFAULT_CONTENT_AREA,
         })
     }
 
@@ -120,6 +135,7 @@ impl App {
                     window_focused: true,
                     pending_alt_prefix_started_at: None,
                     rename: None,
+                    last_content_area: DEFAULT_CONTENT_AREA,
                 })
             }
             None => Self::new_with_keymap(shell, keymap),
@@ -242,6 +258,7 @@ impl App {
     pub fn redraw<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), AppError> {
         self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
         let content_area = terminal_content_area(terminal)?;
+        self.last_content_area = content_area;
         self.tabs
             .resize_active_tab(content_area)
             .map_err(tabs_error)?;
@@ -284,6 +301,12 @@ impl App {
                                 height: rows.saturating_sub(1),
                             })
                             .map_err(tabs_error)?;
+                        self.last_content_area = mtrm_layout::Rect {
+                            x: 0,
+                            y: 0,
+                            width: cols,
+                            height: rows.saturating_sub(1),
+                        };
                         self.ui_dirty = true;
                     }
                     Event::FocusGained => {
@@ -373,10 +396,9 @@ impl App {
             }
             AppCommand::Layout(layout_command) => {
                 self.clear_selection();
-                let persist_state = should_persist_layout_command(&layout_command);
-                self.handle_layout_command(layout_command)?;
-                self.ui_dirty = true;
-                if persist_state {
+                let result = self.handle_layout_command(layout_command)?;
+                self.ui_dirty |= result.ui_dirty;
+                if result.persist {
                     self.save()?;
                 }
             }
@@ -405,52 +427,94 @@ impl App {
         Ok(())
     }
 
-    fn handle_layout_command(&mut self, command: LayoutCommand) -> Result<(), AppError> {
-        match command {
+    fn handle_layout_command(&mut self, command: LayoutCommand) -> Result<LayoutCommandResult, AppError> {
+        let result = match command {
             LayoutCommand::SplitFocused(direction) => {
                 let _ = self
                     .tabs
                     .split_active_pane(direction, &self.shell)
                     .map_err(tabs_error)?;
+                LayoutCommandResult {
+                    persist: true,
+                    ui_dirty: true,
+                }
             }
             LayoutCommand::CloseFocusedPane => {
                 let _ = self.tabs.close_active_pane().map_err(tabs_error)?;
+                LayoutCommandResult {
+                    persist: true,
+                    ui_dirty: true,
+                }
             }
             LayoutCommand::MoveFocus(direction) => {
                 self.tabs.move_focus(direction).map_err(tabs_error)?;
+                LayoutCommandResult {
+                    persist: true,
+                    ui_dirty: true,
+                }
+            }
+            LayoutCommand::ResizeFocused(direction) => {
+                let changed = self
+                    .tabs
+                    .resize_active_pane(direction, self.last_content_area)
+                    .map_err(tabs_error)?;
+                LayoutCommandResult {
+                    persist: changed,
+                    ui_dirty: changed,
+                }
             }
             LayoutCommand::ScrollUpLines(lines) => {
                 self.append_debug_log_event(&format!("SCROLL_UP_LINES lines={lines}"));
                 self.tabs
                     .scroll_active_pane_up_lines(lines)
                     .map_err(tabs_error)?;
+                LayoutCommandResult {
+                    persist: false,
+                    ui_dirty: true,
+                }
             }
             LayoutCommand::ScrollDownLines(lines) => {
                 self.append_debug_log_event(&format!("SCROLL_DOWN_LINES lines={lines}"));
                 self.tabs
                     .scroll_active_pane_down_lines(lines)
                     .map_err(tabs_error)?;
+                LayoutCommandResult {
+                    persist: false,
+                    ui_dirty: true,
+                }
             }
             LayoutCommand::ScrollUpPages(pages) => {
                 self.append_debug_log_event(&format!("SCROLL_UP_PAGES pages={pages}"));
                 self.tabs
                     .scroll_active_pane_up_pages(pages)
                     .map_err(tabs_error)?;
+                LayoutCommandResult {
+                    persist: false,
+                    ui_dirty: true,
+                }
             }
             LayoutCommand::ScrollDownPages(pages) => {
                 self.append_debug_log_event(&format!("SCROLL_DOWN_PAGES pages={pages}"));
                 self.tabs
                     .scroll_active_pane_down_pages(pages)
                     .map_err(tabs_error)?;
+                LayoutCommandResult {
+                    persist: false,
+                    ui_dirty: true,
+                }
             }
             LayoutCommand::ScrollToBottom => {
                 self.append_debug_log_event("SCROLL_TO_BOTTOM");
                 self.tabs
                     .scroll_active_pane_to_bottom()
                     .map_err(tabs_error)?;
+                LayoutCommandResult {
+                    persist: false,
+                    ui_dirty: true,
+                }
             }
-        }
-        Ok(())
+        };
+        Ok(result)
     }
 
     fn handle_tab_command(&mut self, command: TabCommand) -> Result<(), AppError> {
@@ -849,6 +913,10 @@ Keybindings:
   Alt+W            Close current tab
   Alt+Shift+R      Rename current tab
   Alt+Shift+E      Rename current pane
+  Alt+Shift+Left   Resize pane left
+  Alt+Shift+Right  Resize pane right
+  Alt+Shift+Up     Resize pane up
+  Alt+Shift+Down   Resize pane down
   Alt+Shift+Q      Save state and quit
   Alt+Left         Focus pane left
   Alt+Right        Focus pane right
@@ -900,15 +968,6 @@ fn clipboard_error(error: ClipboardError) -> AppError {
 
 fn keymap_error(error: impl ToString) -> AppError {
     AppError::Config(error.to_string())
-}
-
-fn should_persist_layout_command(command: &LayoutCommand) -> bool {
-    matches!(
-        command,
-        LayoutCommand::SplitFocused(_)
-            | LayoutCommand::CloseFocusedPane
-            | LayoutCommand::MoveFocus(_)
-    )
 }
 
 fn terminal_io_error(error: impl ToString) -> AppError {
@@ -1259,6 +1318,8 @@ mod tests {
         assert!(help.contains("Alt+T            New tab"));
         assert!(help.contains("Alt+Shift+R      Rename current tab"));
         assert!(help.contains("Alt+Shift+E      Rename current pane"));
+        assert!(help.contains("Alt+Shift+Left   Resize pane left"));
+        assert!(help.contains("Alt+Shift+Right  Resize pane right"));
         assert!(help.contains("Shift+PageUp     Scroll pane history up by one page"));
         assert!(help.contains("~/.mtrm/keymap.toml"));
     }
@@ -1697,6 +1758,7 @@ mod tests {
             window_focused: true,
             pending_alt_prefix_started_at: None,
             rename: None,
+            last_content_area: DEFAULT_CONTENT_AREA,
         };
 
         let frame = app
