@@ -92,6 +92,7 @@ mtrm --debug-log /tmp/mtrm-pty.log
 - `Alt+T`: open a new tab
 - `Alt+Shift+R`: rename the current tab
 - `Alt+Shift+E`: rename the current pane
+- `Alt+Shift+Left` / `Alt+Shift+Right` / `Alt+Shift+Up` / `Alt+Shift+Down`: resize the active pane by one cell
 - `Alt+,`: previous tab
 - `Alt+.`: next tab
 - `Alt+W`: close the current tab if it is not the last one

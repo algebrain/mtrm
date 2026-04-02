@@ -57,6 +57,7 @@ It does not restore old live processes. On startup it creates fresh shells.
 - `Alt+T` creates a new tab.
 - `Alt+Shift+R` renames the current tab.
 - `Alt+Shift+E` renames the current pane.
+- `Alt+Shift+Left` / `Alt+Shift+Right` / `Alt+Shift+Up` / `Alt+Shift+Down` resize the active pane by one cell.
 - `Alt+,` switches to the previous tab.
 - `Alt+.` switches to the next tab.
 - `Alt+W` closes the current tab if it is not the last one.
@@ -115,6 +116,7 @@ The state file is stored here:
 ```
 
 If `~/.mtrm/state.yaml` is missing, `mtrm` can still read a legacy `~/.mtrm/state.toml`, but it always saves state back as YAML.
+The current YAML state format version is `0.1.0`.
 
 The letter-based keybinding file is stored here:
 
