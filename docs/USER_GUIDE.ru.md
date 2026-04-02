@@ -109,8 +109,10 @@ mtrm --debug-log /tmp/mtrm-pty.log
 Файл состояния хранится здесь:
 
 ```text
-~/.mtrm/state.toml
+~/.mtrm/state.yaml
 ```
+
+Если `~/.mtrm/state.yaml` отсутствует, `mtrm` также умеет прочитать legacy `~/.mtrm/state.toml`, но все новые сохранения всегда пишет в YAML.
 
 Файл буквенных горячих клавиш хранится здесь:
 
@@ -142,7 +144,7 @@ mtrm --debug-log /tmp/mtrm-pty.log
 Достаточно удалить файл состояния:
 
 ```bash
-rm ~/.mtrm/state.toml
+rm ~/.mtrm/state.yaml
 ```
 
 При следующем запуске `mtrm` создаст новую пустую рабочую среду.

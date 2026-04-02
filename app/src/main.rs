@@ -1574,7 +1574,7 @@ mod tests {
         .unwrap();
 
         assert!(
-            !home.join(".mtrm").join("state.toml").exists(),
+            !home.join(".mtrm").join("state.yaml").exists(),
             "plain PTY input must not trigger state save"
         );
     }
@@ -1912,7 +1912,7 @@ mod tests {
         let after = app.tabs.active_pane_text().unwrap();
 
         assert_ne!(before, after);
-        assert!(!home.join(".mtrm").join("state.toml").exists());
+        assert!(!home.join(".mtrm").join("state.yaml").exists());
     }
 
     #[test]
@@ -2290,7 +2290,7 @@ mod tests {
         let mut app = App::new(shell_config(home.clone())).unwrap();
         with_test_home(&home, || app.save()).unwrap();
 
-        assert!(home.join(".mtrm").join("state.toml").is_file());
+        assert!(home.join(".mtrm").join("state.yaml").is_file());
     }
 
     #[test]
@@ -2360,7 +2360,7 @@ mod tests {
     #[test]
     fn app_error_display_is_sanitized_but_debug_keeps_detail() {
         let error =
-            AppError::State("failed to write /tmp/secret/state.toml: permission denied".to_owned());
+            AppError::State("failed to write /tmp/secret/state.yaml: permission denied".to_owned());
 
         let display = error.to_string();
         let debug = format!("{error:?}");
@@ -2385,7 +2385,7 @@ mod tests {
         .unwrap();
 
         assert!(app.should_quit);
-        assert!(home.join(".mtrm").join("state.toml").is_file());
+        assert!(home.join(".mtrm").join("state.yaml").is_file());
     }
 
     #[test]

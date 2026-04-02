@@ -211,7 +211,7 @@ mod tests {
         MtrmPaths {
             home_dir: home.to_path_buf(),
             data_dir: home.join(".mtrm"),
-            state_file: home.join(".mtrm").join("state.toml"),
+            state_file: home.join(".mtrm").join("state.yaml"),
         }
     }
 

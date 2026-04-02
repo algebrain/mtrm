@@ -8,12 +8,12 @@
 
 - `home_dir` — домашний каталог пользователя;
 - `data_dir` — каталог `~/.mtrm`;
-- `state_file` — файл состояния `~/.mtrm/state.toml`.
+- `state_file` — основной файл состояния `~/.mtrm/state.yaml`.
 
 Методы:
 
 - `MtrmPaths::data_dir()` возвращает путь к `~/.mtrm`;
-- `MtrmPaths::state_file()` возвращает путь к `~/.mtrm/state.toml`.
+- `MtrmPaths::state_file()` возвращает путь к `~/.mtrm/state.yaml`.
 
 ## Публичные функции
 
@@ -33,6 +33,6 @@ use mtrm_config::ensure_data_dir;
 
 let paths = ensure_data_dir()?;
 assert!(paths.data_dir().ends_with(".mtrm"));
-assert!(paths.state_file().ends_with(".mtrm/state.toml"));
+assert!(paths.state_file().ends_with(".mtrm/state.yaml"));
 # Ok::<(), mtrm_config::ConfigError>(())
 ```

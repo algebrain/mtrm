@@ -109,8 +109,10 @@ On the first save, the program creates:
 The state file is stored here:
 
 ```text
-~/.mtrm/state.toml
+~/.mtrm/state.yaml
 ```
+
+If `~/.mtrm/state.yaml` is missing, `mtrm` can still read a legacy `~/.mtrm/state.toml`, but it always saves state back as YAML.
 
 The letter-based keybinding file is stored here:
 
@@ -142,7 +144,7 @@ This is useful when you need to quickly understand which installed binary is act
 It is enough to delete the state file:
 
 ```bash
-rm ~/.mtrm/state.toml
+rm ~/.mtrm/state.yaml
 ```
 
 On the next start, `mtrm` will create a new empty workspace.

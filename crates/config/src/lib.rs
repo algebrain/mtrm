@@ -7,7 +7,7 @@ use directories::BaseDirs;
 use thiserror::Error;
 
 const DATA_DIR_NAME: &str = ".mtrm";
-const STATE_FILE_NAME: &str = "state.toml";
+const STATE_FILE_NAME: &str = "state.yaml";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MtrmPaths {
@@ -90,13 +90,13 @@ mod tests {
     }
 
     #[test]
-    fn resolve_paths_uses_state_toml_file() {
+    fn resolve_paths_uses_state_yaml_file() {
         let home = PathBuf::from("/tmp/example-home");
         let paths = resolve_paths_from_home(home.clone()).unwrap();
 
-        assert_eq!(paths.state_file, home.join(".mtrm").join("state.toml"));
+        assert_eq!(paths.state_file, home.join(".mtrm").join("state.yaml"));
         assert_eq!(paths.data_dir(), home.join(".mtrm").as_path());
-        assert_eq!(paths.state_file(), home.join(".mtrm/state.toml").as_path());
+        assert_eq!(paths.state_file(), home.join(".mtrm/state.yaml").as_path());
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod tests {
         ensure_data_dir_at(&paths).unwrap();
 
         assert!(paths.data_dir.is_dir());
-        assert_eq!(paths.state_file, paths.data_dir.join("state.toml"));
+        assert_eq!(paths.state_file, paths.data_dir.join("state.yaml"));
     }
 
     #[test]

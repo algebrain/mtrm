@@ -116,9 +116,11 @@ The bundled default keymap already covers:
 Important files:
 
 ```text
-~/.mtrm/state.toml
+~/.mtrm/state.yaml
 ~/.mtrm/keymap.toml
 ```
+
+If `~/.mtrm/state.yaml` is missing, `mtrm` can still read a legacy `~/.mtrm/state.toml`, but new saves are always written as YAML.
 
 Scroll position is not persisted. After restart, panes reopen at the live bottom.
 
