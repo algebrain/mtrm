@@ -10,7 +10,7 @@ use ratatui::backend::Backend;
 use ratatui::layout::Rect as TuiRect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Tabs, Widget};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Tabs, Widget};
 
 const TAB_BAR_HEIGHT: u16 = 1;
 
@@ -43,6 +43,15 @@ pub struct FrameView {
     pub tabs: Vec<TabView>,
     pub panes: Vec<PaneView>,
     pub focused: bool,
+    pub modal: Option<ModalView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModalView {
+    pub title: String,
+    pub input: String,
+    pub cursor: usize,
+    pub hint: String,
 }
 
 pub fn render_frame<B: Backend>(
@@ -55,6 +64,9 @@ pub fn render_frame<B: Backend>(
         render_tabs(frame, frame_view, full);
         for pane in &frame_view.panes {
             render_pane(frame, pane, full, frame_view.focused);
+        }
+        if let Some(modal) = &frame_view.modal {
+            render_modal(frame, modal, full);
         }
     })?;
     Ok(())
@@ -353,6 +365,75 @@ fn render_cursor_overlay(frame: &mut ratatui::Frame<'_>, pane: &PaneView, area: 
     );
 }
 
+fn render_modal(frame: &mut ratatui::Frame<'_>, modal: &ModalView, full_area: TuiRect) {
+    let width = full_area.width.min(60).max(24);
+    let height = 4.min(full_area.height);
+    let x = full_area.x + full_area.width.saturating_sub(width) / 2;
+    let y = full_area.y + full_area.height.saturating_sub(height) / 2;
+    let area = TuiRect::new(x, y, width, height);
+
+    Clear.render(area, frame.buffer_mut());
+    let block = Block::default()
+        .title(modal.title.clone())
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+    block.render(area, frame.buffer_mut());
+
+    let inner = TuiRect::new(
+        area.x.saturating_add(1),
+        area.y.saturating_add(1),
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+    );
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let input_area = TuiRect::new(inner.x, inner.y, inner.width, 1.min(inner.height));
+    let (visible_input, visible_cursor) =
+        visible_input_window(&modal.input, modal.cursor, input_area.width as usize);
+    Paragraph::new(visible_input).render(input_area, frame.buffer_mut());
+
+    if inner.height > 1 {
+        let hint_area = TuiRect::new(inner.x, inner.y + 1, inner.width, 1);
+        Paragraph::new(modal.hint.clone())
+            .style(Style::default().fg(Color::DarkGray))
+            .render(hint_area, frame.buffer_mut());
+    }
+
+    let cursor_col = visible_cursor as u16;
+    if cursor_col < input_area.width {
+        let cell = &mut frame.buffer_mut()[(
+            input_area.x.saturating_add(cursor_col),
+            input_area.y,
+        )];
+        if cell.symbol().trim().is_empty() {
+            cell.set_symbol(" ");
+        }
+        cell.set_style(Style::default().fg(Color::Black).bg(Color::Yellow));
+    }
+}
+
+fn visible_input_window(input: &str, cursor: usize, width: usize) -> (String, usize) {
+    if width == 0 {
+        return (String::new(), 0);
+    }
+
+    let chars: Vec<char> = input.chars().collect();
+    if chars.len() <= width {
+        return (input.to_owned(), cursor.min(chars.len()));
+    }
+
+    let cursor = cursor.min(chars.len());
+    let mut start = cursor.saturating_sub(width.saturating_sub(1));
+    if start + width > chars.len() {
+        start = chars.len().saturating_sub(width);
+    }
+    let end = (start + width).min(chars.len());
+    let visible: String = chars[start..end].iter().collect();
+    (visible, cursor.saturating_sub(start))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -454,6 +535,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                modal: None,
             },
             30,
             10,
@@ -483,6 +565,7 @@ mod tests {
                 ],
                 panes: vec![],
                 focused: true,
+                modal: None,
             },
             20,
             5,
@@ -513,6 +596,7 @@ mod tests {
                 ],
                 panes: vec![],
                 focused: true,
+                modal: None,
             },
             20,
             5,
@@ -544,6 +628,7 @@ mod tests {
                 ],
                 panes: vec![],
                 focused: false,
+                modal: None,
             },
             20,
             5,
@@ -597,6 +682,7 @@ mod tests {
                     },
                 ],
                 focused: true,
+                modal: None,
             },
             25,
             10,
@@ -631,6 +717,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: false,
+                modal: None,
             },
             20,
             8,
@@ -684,6 +771,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                modal: None,
             },
             20,
             8,
@@ -736,6 +824,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                modal: None,
             },
             30,
             12,
@@ -788,6 +877,7 @@ mod tests {
                     cursor: Some((0, 1)),
                 }],
                 focused: true,
+                modal: None,
             },
             20,
             8,
@@ -852,6 +942,7 @@ mod tests {
                     cursor: Some((0, 1)),
                 }],
                 focused: true,
+                modal: None,
             },
             20,
             8,
@@ -903,6 +994,7 @@ mod tests {
                     cursor: Some((0, 2)),
                 }],
                 focused: true,
+                modal: None,
             },
             20,
             8,
@@ -955,6 +1047,7 @@ mod tests {
                     cursor: Some((0, 1)),
                 }],
                 focused: true,
+                modal: None,
             },
             20,
             8,
@@ -979,6 +1072,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&screen)],
                 focused: true,
+                modal: None,
             },
             30,
             8,
@@ -1007,6 +1101,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&screen)],
                 focused: true,
+                modal: None,
             },
             30,
             8,
@@ -1034,6 +1129,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&first)],
                 focused: true,
+                modal: None,
             },
         )
         .unwrap();
@@ -1050,6 +1146,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&second)],
                 focused: true,
+                modal: None,
             },
         )
         .unwrap();
@@ -1106,6 +1203,7 @@ mod tests {
                     ),
                 ],
                 focused: true,
+                modal: None,
             },
         )
         .unwrap();
@@ -1147,6 +1245,7 @@ mod tests {
                     ),
                 ],
                 focused: true,
+                modal: None,
             },
         )
         .unwrap();
@@ -1208,6 +1307,7 @@ mod tests {
                     ),
                 ],
                 focused: true,
+                modal: None,
             },
         )
         .unwrap();
@@ -1250,6 +1350,7 @@ mod tests {
                     ),
                 ],
                 focused: true,
+                modal: None,
             },
         )
         .unwrap();
@@ -1284,6 +1385,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&first)],
                 focused: true,
+                modal: None,
             },
         )
         .unwrap();
@@ -1300,6 +1402,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&second)],
                 focused: true,
+                modal: None,
             },
         )
         .unwrap();
@@ -1380,6 +1483,7 @@ mod tests {
                     cursor: Some((0, 1)),
                 }],
                 focused: true,
+                modal: None,
             },
             20,
             8,
@@ -1433,6 +1537,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                modal: None,
             },
             20,
             8,
@@ -1473,6 +1578,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                modal: None,
             },
             20,
             8,
@@ -1515,6 +1621,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                modal: None,
             },
             20,
             8,
@@ -1555,6 +1662,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                modal: None,
             },
             20,
             8,
@@ -1598,6 +1706,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                modal: None,
             },
             20,
             8,
@@ -1613,5 +1722,47 @@ mod tests {
             "expected DIM modifier with background highlight, got {:?}",
             cell.style()
         );
+    }
+
+    #[test]
+    fn renders_centered_modal_overlay() {
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![],
+                focused: true,
+                modal: Some(ModalView {
+                    title: "Rename Tab".to_owned(),
+                    input: "build".to_owned(),
+                    cursor: 2,
+                    hint: "Enter apply, Esc cancel".to_owned(),
+                }),
+            },
+            40,
+            12,
+        );
+
+        let buffer = terminal.backend().buffer();
+        let title_line: String = (0..40).map(|x| buffer[(x, 4)].symbol()).collect();
+        let input_line: String = (1..39).map(|x| buffer[(x, 5)].symbol()).collect();
+        let hint_line: String = (1..39).map(|x| buffer[(x, 6)].symbol()).collect();
+
+        assert!(title_line.contains("Rename Tab"));
+        assert!(input_line.contains("build"));
+        assert!(hint_line.contains("Enter apply"));
+        assert_eq!(buffer[(3, 5)].style().bg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn visible_input_window_keeps_cursor_in_view() {
+        let (visible, cursor) =
+            visible_input_window("abcdefghijklmnopqrstuvwxyz0123456789", 36, 22);
+
+        assert!(visible.ends_with("6789"));
+        assert_eq!(cursor, 22);
     }
 }

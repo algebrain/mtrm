@@ -135,6 +135,10 @@ impl TabManager {
         self.active_tab().runtime.id
     }
 
+    pub fn active_tab_title(&self) -> &str {
+        &self.active_tab().runtime.title
+    }
+
     pub fn active_pane_id(&self) -> PaneId {
         self.active_tab().runtime.layout.focused_pane()
     }
@@ -191,6 +195,16 @@ impl TabManager {
             .position(|tab| tab.runtime.id == tab_id)
             .ok_or(TabsError::TabNotFound(tab_id))?;
         self.active_tab = index;
+        Ok(())
+    }
+
+    pub fn rename_tab(&mut self, tab_id: TabId, title: String) -> Result<(), TabsError> {
+        let tab = self
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.runtime.id == tab_id)
+            .ok_or(TabsError::TabNotFound(tab_id))?;
+        tab.runtime.title = title;
         Ok(())
     }
 
@@ -824,6 +838,20 @@ mod tests {
         assert_eq!(manager.tab_ids(), vec![TabId::new(5), TabId::new(6)]);
         assert_eq!(manager.active_tab_id(), TabId::new(6));
         assert_eq!(manager.active_pane_id(), PaneId::new(21));
+    }
+
+    #[test]
+    fn rename_tab_updates_runtime_title_and_snapshot() {
+        let temp = tempdir().unwrap();
+        let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+
+        manager
+            .rename_tab(TabId::new(0), "renamed".to_owned())
+            .unwrap();
+
+        assert_eq!(manager.active_tab_title(), "renamed");
+        let snapshot = manager.snapshot().unwrap();
+        assert_eq!(snapshot.tabs[0].title, "renamed");
     }
 
     #[test]

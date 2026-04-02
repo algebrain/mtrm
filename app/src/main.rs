@@ -20,7 +20,7 @@ use mtrm_keymap::{Keymap, load_keymap};
 use mtrm_process::ShellProcessConfig;
 use mtrm_state::{load_state, save_state};
 use mtrm_tabs::TabManager;
-use mtrm_ui::{FrameView, PaneSelectionView, PaneView, TabView, render_frame};
+use mtrm_ui::{FrameView, ModalView, PaneSelectionView, PaneView, TabView, render_frame};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::backend::CrosstermBackend;
@@ -37,6 +37,7 @@ pub struct App {
     ui_dirty: bool,
     window_focused: bool,
     pending_alt_prefix_started_at: Option<Instant>,
+    rename_tab: Option<RenameTabState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +72,13 @@ struct PaneSelectionTarget {
     point: SelectionPoint,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RenameTabState {
+    tab_id: mtrm_core::TabId,
+    input: String,
+    cursor: usize,
+}
+
 impl App {
     pub fn new(shell: ShellProcessConfig) -> Result<Self, AppError> {
         Self::new_with_keymap(shell, Keymap::default())
@@ -87,6 +95,7 @@ impl App {
             ui_dirty: true,
             window_focused: true,
             pending_alt_prefix_started_at: None,
+            rename_tab: None,
         })
     }
 
@@ -104,6 +113,7 @@ impl App {
                     ui_dirty: true,
                     window_focused: true,
                     pending_alt_prefix_started_at: None,
+                    rename_tab: None,
                 })
             }
             None => Self::new_with_keymap(shell, keymap),
@@ -115,9 +125,18 @@ impl App {
         event: KeyEvent,
         clipboard: &mut dyn ClipboardBackend,
     ) -> Result<(), AppError> {
+        if self.rename_tab.is_some() {
+            return self.handle_rename_tab_key_event(event);
+        }
+
         let Some(event) = self.resolve_alt_prefixed_key_event(event)? else {
             return Ok(());
         };
+
+        if is_start_rename_tab_event(event, &self.keymap) {
+            self.open_rename_tab_modal();
+            return Ok(());
+        }
 
         if self.handle_terminal_navigation_key(event)? {
             return Ok(());
@@ -459,6 +478,71 @@ impl App {
         self.tabs.refresh_all_panes()
     }
 
+    fn open_rename_tab_modal(&mut self) {
+        let input = self.tabs.active_tab_title().to_owned();
+        let cursor = input.chars().count();
+        self.rename_tab = Some(RenameTabState {
+            tab_id: self.tabs.active_tab_id(),
+            input,
+            cursor,
+        });
+        self.ui_dirty = true;
+    }
+
+    fn handle_rename_tab_key_event(&mut self, event: KeyEvent) -> Result<(), AppError> {
+        let Some(state) = &mut self.rename_tab else {
+            return Ok(());
+        };
+
+        match event.code {
+            KeyCode::Esc => {
+                self.rename_tab = None;
+                self.ui_dirty = true;
+            }
+            KeyCode::Enter => {
+                let tab_id = state.tab_id;
+                let title = normalized_tab_title(tab_id, &state.input);
+                self.tabs.rename_tab(tab_id, title).map_err(tabs_error)?;
+                self.rename_tab = None;
+                self.ui_dirty = true;
+                self.save()?;
+            }
+            KeyCode::Backspace => {
+                if state.cursor > 0 {
+                    let remove_at = state.cursor - 1;
+                    state.input = remove_char_at(&state.input, remove_at);
+                    state.cursor -= 1;
+                    self.ui_dirty = true;
+                }
+            }
+            KeyCode::Left => {
+                state.cursor = state.cursor.saturating_sub(1);
+                self.ui_dirty = true;
+            }
+            KeyCode::Right => {
+                let len = state.input.chars().count();
+                state.cursor = (state.cursor + 1).min(len);
+                self.ui_dirty = true;
+            }
+            KeyCode::Home => {
+                state.cursor = 0;
+                self.ui_dirty = true;
+            }
+            KeyCode::End => {
+                state.cursor = state.input.chars().count();
+                self.ui_dirty = true;
+            }
+            KeyCode::Char(ch) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
+                state.input = insert_char_at(&state.input, state.cursor, ch);
+                state.cursor += 1;
+                self.ui_dirty = true;
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
     fn append_debug_log_event(&self, event: &str) {
         let Some(path) = &self.shell.debug_log_path else {
             return;
@@ -518,11 +602,19 @@ impl App {
             })
             .collect();
 
+        let modal = self.rename_tab.as_ref().map(|rename| ModalView {
+            title: "Rename Tab".to_owned(),
+            input: rename.input.clone(),
+            cursor: rename.cursor,
+            hint: "Enter apply, Esc cancel".to_owned(),
+        });
+
         let _ = active_tab_snapshot;
         Ok(FrameView {
             tabs,
             panes,
             focused: self.window_focused,
+            modal,
         })
     }
 }
@@ -586,6 +678,44 @@ fn main() -> Result<(), AppError> {
     let _ = terminal.show_cursor();
 
     result
+}
+
+fn is_start_rename_tab_event(event: KeyEvent, keymap: &Keymap) -> bool {
+    event.modifiers == (KeyModifiers::ALT | KeyModifiers::SHIFT)
+        && matches!(event.code, KeyCode::Char(ch) if keymap.matches_rename_tab(ch))
+}
+
+fn remove_char_at(input: &str, index: usize) -> String {
+    input
+        .chars()
+        .enumerate()
+        .filter_map(|(i, ch)| (i != index).then_some(ch))
+        .collect()
+}
+
+fn insert_char_at(input: &str, index: usize, ch: char) -> String {
+    let mut result = String::new();
+    let mut inserted = false;
+    for (i, existing) in input.chars().enumerate() {
+        if i == index {
+            result.push(ch);
+            inserted = true;
+        }
+        result.push(existing);
+    }
+    if !inserted {
+        result.push(ch);
+    }
+    result
+}
+
+fn normalized_tab_title(tab_id: mtrm_core::TabId, input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        format!("Tab {}", tab_id.get() + 1)
+    } else {
+        trimmed.to_owned()
+    }
 }
 
 fn default_shell_config(debug_log_path: Option<PathBuf>) -> Result<ShellProcessConfig, io::Error> {
@@ -660,6 +790,7 @@ Keybindings:
   Alt+,            Previous tab
   Alt+.            Next tab
   Alt+W            Close current tab
+  Alt+Shift+R      Rename current tab
   Alt+Shift+Q      Save state and quit
   Alt+Left         Focus pane left
   Alt+Right        Focus pane right
@@ -1067,6 +1198,7 @@ mod tests {
         assert!(help.contains("Keybindings:"));
         assert!(help.contains("Ctrl+C           Copy selection"));
         assert!(help.contains("Alt+T            New tab"));
+        assert!(help.contains("Alt+Shift+R      Rename current tab"));
         assert!(help.contains("Shift+PageUp     Scroll pane history up by one page"));
         assert!(help.contains("~/.mtrm/keymap.toml"));
     }
@@ -1245,6 +1377,129 @@ mod tests {
         .unwrap();
 
         assert_eq!(app.tabs.tab_ids().len(), 2);
+    }
+
+    #[test]
+    fn alt_shift_r_opens_rename_tab_modal() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        app.handle_key_event(
+            key_event(KeyCode::Char('R'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            &mut clipboard,
+        )
+        .unwrap();
+
+        assert_eq!(
+            app.rename_tab,
+            Some(RenameTabState {
+                tab_id: mtrm_core::TabId::new(0),
+                input: "Tab 1".to_owned(),
+                cursor: 5,
+            })
+        );
+    }
+
+    #[test]
+    fn alt_shift_russian_ka_opens_rename_tab_modal() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        app.handle_key_event(
+            key_event(KeyCode::Char('К'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            &mut clipboard,
+        )
+        .unwrap();
+
+        assert!(app.rename_tab.is_some());
+    }
+
+    #[test]
+    fn rename_tab_modal_consumes_text_input_without_sending_to_pty() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        app.open_rename_tab_modal();
+        app.handle_key_event(key_event(KeyCode::Char('x'), KeyModifiers::NONE), &mut clipboard)
+            .unwrap();
+
+        assert_eq!(app.rename_tab.as_ref().unwrap().input, "Tab 1x");
+        let text = app.tabs.active_pane_text().unwrap();
+        assert!(!text.contains("x"), "rename modal input must not reach the PTY");
+    }
+
+    #[test]
+    #[serial]
+    fn rename_tab_modal_applies_title_and_persists_it() {
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir(&home).unwrap();
+        let mut app = App::new(shell_config(home.clone())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        with_test_home(&home, || {
+            app.handle_key_event(
+                key_event(KeyCode::Char('R'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+                &mut clipboard,
+            )
+        })
+        .unwrap();
+        for _ in 0..5 {
+            with_test_home(&home, || {
+                app.handle_key_event(key_event(KeyCode::Backspace, KeyModifiers::NONE), &mut clipboard)
+            })
+            .unwrap();
+        }
+        with_test_home(&home, || {
+            app.handle_key_event(key_event(KeyCode::Char('b'), KeyModifiers::NONE), &mut clipboard)
+        })
+        .unwrap();
+        with_test_home(&home, || {
+            app.handle_key_event(key_event(KeyCode::Char('u'), KeyModifiers::NONE), &mut clipboard)
+        })
+        .unwrap();
+        with_test_home(&home, || {
+            app.handle_key_event(key_event(KeyCode::Char('i'), KeyModifiers::NONE), &mut clipboard)
+        })
+        .unwrap();
+        with_test_home(&home, || {
+            app.handle_key_event(key_event(KeyCode::Char('l'), KeyModifiers::NONE), &mut clipboard)
+        })
+        .unwrap();
+        with_test_home(&home, || {
+            app.handle_key_event(key_event(KeyCode::Char('d'), KeyModifiers::NONE), &mut clipboard)
+        })
+        .unwrap();
+        with_test_home(&home, || {
+            app.handle_key_event(key_event(KeyCode::Enter, KeyModifiers::NONE), &mut clipboard)
+        })
+        .unwrap();
+
+        assert_eq!(app.tabs.active_tab_title(), "build");
+        assert!(app.rename_tab.is_none());
+
+        let restored =
+            with_test_home(&home, || App::restore_or_new(shell_config(home.clone()))).unwrap();
+        assert_eq!(restored.tabs.active_tab_title(), "build");
+    }
+
+    #[test]
+    fn rename_tab_modal_esc_cancels_changes() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        app.open_rename_tab_modal();
+        app.handle_key_event(key_event(KeyCode::Char('x'), KeyModifiers::NONE), &mut clipboard)
+            .unwrap();
+        app.handle_key_event(key_event(KeyCode::Esc, KeyModifiers::NONE), &mut clipboard)
+            .unwrap();
+
+        assert!(app.rename_tab.is_none());
+        assert_eq!(app.tabs.active_tab_title(), "Tab 1");
     }
 
     #[test]
