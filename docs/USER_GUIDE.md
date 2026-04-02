@@ -55,6 +55,8 @@ It does not restore old live processes. On startup it creates fresh shells.
 - `Alt+=` splits the active pane into top and bottom.
 - `Alt+Q` closes the active pane if it is not the last pane in the tab.
 - `Alt+T` creates a new tab.
+- `Alt+Shift+R` renames the current tab.
+- `Alt+Shift+E` renames the current pane.
 - `Alt+,` switches to the previous tab.
 - `Alt+.` switches to the next tab.
 - `Alt+W` closes the current tab if it is not the last one.
@@ -70,7 +72,7 @@ It does not restore old live processes. On startup it creates fresh shells.
 - `Shift+PageDown` scrolls the active pane history down by one screen.
 - `End` returns to the live bottom of the active pane.
 
-By default, letter-based shortcuts like `Alt+T`, `Alt+Q`, `Alt+W`, `Alt+X`, and `Alt+Shift+Q` work for Latin letters, which already covers English, Spanish, and Portuguese layouts, and additionally includes Russian, French AZERTY, and Greek layouts.
+By default, letter-based shortcuts like `Alt+T`, `Alt+Q`, `Alt+W`, `Alt+X`, `Alt+Shift+R`, `Alt+Shift+E`, and `Alt+Shift+Q` work for Latin letters, which already covers English, Spanish, and Portuguese layouts, and additionally includes Russian, French AZERTY, and Greek layouts.
 The exact set of symbols for letter-based shortcuts is stored in `~/.mtrm/keymap.toml`. If you need another layout, you can add its symbols there.
 
 ## Scrollback

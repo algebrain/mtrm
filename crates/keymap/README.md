@@ -31,6 +31,8 @@ interrupt = ["x", "ч"]
 close_pane = ["q", "й"]
 new_tab = ["t", "е"]
 close_tab = ["w", "ц"]
+rename_tab = ["R", "К"]
+rename_pane = ["E", "У"]
 quit = ["Q", "Й"]
 previous_tab = [",", "б"]
 next_tab = [".", "ю"]
@@ -45,7 +47,7 @@ next_tab = [".", "ю"]
 - латинские символы;
 - испанские и португальские раскладки через те же латинские символы;
 - русская раскладка;
-- французский AZERTY для буквенных команд `close_pane`, `close_tab` и `quit`;
+- французский AZERTY для буквенных команд `close_pane`, `close_tab`, `rename_pane` и `quit`;
 - греческие символы для `copy`, `paste`, `interrupt`, `new_tab`, `close_tab`, `close_pane` и `quit`.
 
 ## Архитектурная граница

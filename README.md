@@ -90,6 +90,8 @@ mtrm --debug-log /tmp/mtrm-pty.log
 - `Alt+=`: split the active pane top/bottom
 - `Alt+Q`: close the active pane if it is not the last one
 - `Alt+T`: open a new tab
+- `Alt+Shift+R`: rename the current tab
+- `Alt+Shift+E`: rename the current pane
 - `Alt+,`: previous tab
 - `Alt+.`: next tab
 - `Alt+W`: close the current tab if it is not the last one
