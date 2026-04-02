@@ -20,7 +20,7 @@ use mtrm_keymap::{Keymap, load_keymap};
 use mtrm_process::ShellProcessConfig;
 use mtrm_state::{load_state, save_state};
 use mtrm_tabs::TabManager;
-use mtrm_ui::{FrameView, ModalView, PaneSelectionView, PaneView, TabView, render_frame};
+use mtrm_ui::{FrameView, ModalView, PaneSelectionView, PaneView, TAB_DIVIDER, TabView, render_frame};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::backend::CrosstermBackend;
@@ -1064,6 +1064,7 @@ fn tab_id_at_position(
         return None;
     }
 
+    let divider_width = TAB_DIVIDER.chars().count().min(u16::MAX as usize) as u16;
     let mut x = 0_u16;
     for (index, tab) in tabs.iter().enumerate() {
         let title_width = tab.title.chars().count().min(u16::MAX as usize) as u16;
@@ -1074,10 +1075,10 @@ fn tab_id_at_position(
 
         x = end;
         if index + 1 < tabs.len() {
-            if column == x {
+            if column >= x && column < x.saturating_add(divider_width) {
                 return None;
             }
-            x = x.saturating_add(1);
+            x = x.saturating_add(divider_width);
         }
     }
 
@@ -1936,10 +1937,9 @@ mod tests {
             Some(mtrm_core::TabId::new(0))
         );
         assert_eq!(tab_id_at_position(&tabs, 80, 3, 0), None);
-        assert_eq!(
-            tab_id_at_position(&tabs, 80, 4, 0),
-            Some(mtrm_core::TabId::new(1))
-        );
+        assert_eq!(tab_id_at_position(&tabs, 80, 4, 0), None);
+        assert_eq!(tab_id_at_position(&tabs, 80, 5, 0), None);
+        assert_eq!(tab_id_at_position(&tabs, 80, 6, 0), Some(mtrm_core::TabId::new(1)));
         assert_eq!(tab_id_at_position(&tabs, 80, 0, 1), None);
     }
 
@@ -1971,6 +1971,24 @@ mod tests {
         .unwrap();
 
         assert_eq!(app.tabs.active_tab_id(), first);
+
+        with_test_home(&home, || {
+            let summaries = app.tabs.tab_summaries();
+            let second_x = (0..content_area.width)
+                .find_map(|column| {
+                    tab_id_at_position(&summaries, content_area.width, column, 0)
+                        .filter(|tab_id| *tab_id == second)
+                        .map(|_| column)
+                })
+                .expect("expected to find clickable column for second tab");
+            app.handle_mouse_event(
+                mouse_event(MouseEventKind::Down(MouseButton::Left), second_x, 0),
+                content_area,
+            )
+        })
+        .unwrap();
+
+        assert_eq!(app.tabs.active_tab_id(), second);
     }
 
     #[test]

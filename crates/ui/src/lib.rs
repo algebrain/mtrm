@@ -13,6 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Tabs, Widget};
 
 const TAB_BAR_HEIGHT: u16 = 1;
+pub const TAB_DIVIDER: &str = " | ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabView {
@@ -92,7 +93,7 @@ fn render_tabs(frame: &mut ratatui::Frame<'_>, frame_view: &FrameView, area: Tui
     let tabs = Tabs::new(titles)
         .select(selected)
         .highlight_style(active_tab_style(frame_view.focused))
-        .divider(Span::styled(" | ", Style::default().fg(Color::DarkGray)))
+        .divider(Span::styled(TAB_DIVIDER, Style::default().fg(Color::DarkGray)))
         .padding("", "")
         .style(Style::default().fg(Color::Gray));
 
