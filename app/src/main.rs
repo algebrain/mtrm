@@ -37,7 +37,7 @@ pub struct App {
     ui_dirty: bool,
     window_focused: bool,
     pending_alt_prefix_started_at: Option<Instant>,
-    rename_tab: Option<RenameTabState>,
+    rename: Option<RenameState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,8 +73,14 @@ struct PaneSelectionTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RenameTabState {
-    tab_id: mtrm_core::TabId,
+enum RenameTarget {
+    Tab(mtrm_core::TabId),
+    Pane(mtrm_core::PaneId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RenameState {
+    target: RenameTarget,
     input: String,
     cursor: usize,
 }
@@ -95,7 +101,7 @@ impl App {
             ui_dirty: true,
             window_focused: true,
             pending_alt_prefix_started_at: None,
-            rename_tab: None,
+            rename: None,
         })
     }
 
@@ -113,7 +119,7 @@ impl App {
                     ui_dirty: true,
                     window_focused: true,
                     pending_alt_prefix_started_at: None,
-                    rename_tab: None,
+                    rename: None,
                 })
             }
             None => Self::new_with_keymap(shell, keymap),
@@ -125,8 +131,8 @@ impl App {
         event: KeyEvent,
         clipboard: &mut dyn ClipboardBackend,
     ) -> Result<(), AppError> {
-        if self.rename_tab.is_some() {
-            return self.handle_rename_tab_key_event(event);
+        if self.rename.is_some() {
+            return self.handle_rename_key_event(event);
         }
 
         let Some(event) = self.resolve_alt_prefixed_key_event(event)? else {
@@ -135,6 +141,10 @@ impl App {
 
         if is_start_rename_tab_event(event, &self.keymap) {
             self.open_rename_tab_modal();
+            return Ok(());
+        }
+        if is_start_rename_pane_event(event, &self.keymap) {
+            self.open_rename_pane_modal();
             return Ok(());
         }
 
@@ -481,29 +491,54 @@ impl App {
     fn open_rename_tab_modal(&mut self) {
         let input = self.tabs.active_tab_title().to_owned();
         let cursor = input.chars().count();
-        self.rename_tab = Some(RenameTabState {
-            tab_id: self.tabs.active_tab_id(),
+        self.rename = Some(RenameState {
+            target: RenameTarget::Tab(self.tabs.active_tab_id()),
             input,
             cursor,
         });
         self.ui_dirty = true;
     }
 
-    fn handle_rename_tab_key_event(&mut self, event: KeyEvent) -> Result<(), AppError> {
-        let Some(state) = &mut self.rename_tab else {
+    fn open_rename_pane_modal(&mut self) {
+        let input = self
+            .tabs
+            .active_pane_title()
+            .map(|title| title.to_owned())
+            .unwrap_or_else(|_| format!("pane-{}", self.tabs.active_pane_id().get()));
+        let cursor = input.chars().count();
+        self.rename = Some(RenameState {
+            target: RenameTarget::Pane(self.tabs.active_pane_id()),
+            input,
+            cursor,
+        });
+        self.ui_dirty = true;
+    }
+
+    fn handle_rename_key_event(&mut self, event: KeyEvent) -> Result<(), AppError> {
+        let Some(state) = &mut self.rename else {
             return Ok(());
         };
 
         match event.code {
             KeyCode::Esc => {
-                self.rename_tab = None;
+                self.rename = None;
                 self.ui_dirty = true;
             }
             KeyCode::Enter => {
-                let tab_id = state.tab_id;
-                let title = normalized_tab_title(tab_id, &state.input);
-                self.tabs.rename_tab(tab_id, title).map_err(tabs_error)?;
-                self.rename_tab = None;
+                let target = state.target.clone();
+                let title = match target {
+                    RenameTarget::Tab(tab_id) => normalized_tab_title(tab_id, &state.input),
+                    RenameTarget::Pane(pane_id) => normalized_pane_title(pane_id, &state.input),
+                };
+                match target {
+                    RenameTarget::Tab(tab_id) => {
+                        self.tabs.rename_tab(tab_id, title).map_err(tabs_error)?;
+                    }
+                    RenameTarget::Pane(pane_id) => {
+                        self.tabs.rename_pane(pane_id, title).map_err(tabs_error)?;
+                    }
+                }
+                self.rename = None;
                 self.ui_dirty = true;
                 self.save()?;
             }
@@ -589,7 +624,12 @@ impl App {
             .into_iter()
             .map(|(id, area, focused)| PaneView {
                 id,
-                title: format!("pane-{}", id.get()),
+                title: self
+                    .tabs
+                    .pane_title(id)
+                    .map(|title| title.to_owned())
+                    .map_err(tabs_error)
+                    .unwrap_or_else(|_| format!("pane-{}", id.get())),
                 area,
                 active: focused,
                 lines: self
@@ -602,8 +642,11 @@ impl App {
             })
             .collect();
 
-        let modal = self.rename_tab.as_ref().map(|rename| ModalView {
-            title: "Rename Tab".to_owned(),
+        let modal = self.rename.as_ref().map(|rename| ModalView {
+            title: match rename.target {
+                RenameTarget::Tab(_) => "Rename Tab".to_owned(),
+                RenameTarget::Pane(_) => "Rename Pane".to_owned(),
+            },
             input: rename.input.clone(),
             cursor: rename.cursor,
             hint: "Enter apply, Esc cancel".to_owned(),
@@ -685,6 +728,11 @@ fn is_start_rename_tab_event(event: KeyEvent, keymap: &Keymap) -> bool {
         && matches!(event.code, KeyCode::Char(ch) if keymap.matches_rename_tab(ch))
 }
 
+fn is_start_rename_pane_event(event: KeyEvent, keymap: &Keymap) -> bool {
+    event.modifiers == (KeyModifiers::ALT | KeyModifiers::SHIFT)
+        && matches!(event.code, KeyCode::Char(ch) if keymap.matches_rename_pane(ch))
+}
+
 fn remove_char_at(input: &str, index: usize) -> String {
     input
         .chars()
@@ -713,6 +761,15 @@ fn normalized_tab_title(tab_id: mtrm_core::TabId, input: &str) -> String {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         format!("Tab {}", tab_id.get() + 1)
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+fn normalized_pane_title(pane_id: mtrm_core::PaneId, input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        format!("pane-{}", pane_id.get())
     } else {
         trimmed.to_owned()
     }
@@ -791,6 +848,7 @@ Keybindings:
   Alt+.            Next tab
   Alt+W            Close current tab
   Alt+Shift+R      Rename current tab
+  Alt+Shift+E      Rename current pane
   Alt+Shift+Q      Save state and quit
   Alt+Left         Focus pane left
   Alt+Right        Focus pane right
@@ -1199,6 +1257,7 @@ mod tests {
         assert!(help.contains("Ctrl+C           Copy selection"));
         assert!(help.contains("Alt+T            New tab"));
         assert!(help.contains("Alt+Shift+R      Rename current tab"));
+        assert!(help.contains("Alt+Shift+E      Rename current pane"));
         assert!(help.contains("Shift+PageUp     Scroll pane history up by one page"));
         assert!(help.contains("~/.mtrm/keymap.toml"));
     }
@@ -1316,10 +1375,12 @@ mod tests {
                     mtrm_session::PaneSnapshot {
                         id: mtrm_core::PaneId::new(10),
                         cwd: dir_a,
+                        title: "pane-10".to_owned(),
                     },
                     mtrm_session::PaneSnapshot {
                         id: mtrm_core::PaneId::new(11),
                         cwd: dir_b,
+                        title: "pane-11".to_owned(),
                     },
                 ],
                 active_pane: mtrm_core::PaneId::new(11),
@@ -1392,9 +1453,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            app.rename_tab,
-            Some(RenameTabState {
-                tab_id: mtrm_core::TabId::new(0),
+            app.rename,
+            Some(RenameState {
+                target: RenameTarget::Tab(mtrm_core::TabId::new(0)),
                 input: "Tab 1".to_owned(),
                 cursor: 5,
             })
@@ -1413,7 +1474,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(app.rename_tab.is_some());
+        assert!(app.rename.is_some());
     }
 
     #[test]
@@ -1426,7 +1487,7 @@ mod tests {
         app.handle_key_event(key_event(KeyCode::Char('x'), KeyModifiers::NONE), &mut clipboard)
             .unwrap();
 
-        assert_eq!(app.rename_tab.as_ref().unwrap().input, "Tab 1x");
+        assert_eq!(app.rename.as_ref().unwrap().input, "Tab 1x");
         let text = app.tabs.active_pane_text().unwrap();
         assert!(!text.contains("x"), "rename modal input must not reach the PTY");
     }
@@ -1479,7 +1540,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(app.tabs.active_tab_title(), "build");
-        assert!(app.rename_tab.is_none());
+        assert!(app.rename.is_none());
 
         let restored =
             with_test_home(&home, || App::restore_or_new(shell_config(home.clone()))).unwrap();
@@ -1498,8 +1559,155 @@ mod tests {
         app.handle_key_event(key_event(KeyCode::Esc, KeyModifiers::NONE), &mut clipboard)
             .unwrap();
 
-        assert!(app.rename_tab.is_none());
+        assert!(app.rename.is_none());
         assert_eq!(app.tabs.active_tab_title(), "Tab 1");
+    }
+
+    #[test]
+    fn alt_shift_e_opens_rename_pane_modal() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        app.handle_key_event(
+            key_event(KeyCode::Char('E'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            &mut clipboard,
+        )
+        .unwrap();
+
+        assert_eq!(
+            app.rename,
+            Some(RenameState {
+                target: RenameTarget::Pane(mtrm_core::PaneId::new(0)),
+                input: "pane-0".to_owned(),
+                cursor: 6,
+            })
+        );
+    }
+
+    #[test]
+    fn alt_shift_russian_u_opens_rename_pane_modal() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        app.handle_key_event(
+            key_event(KeyCode::Char('У'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            &mut clipboard,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            app.rename,
+            Some(RenameState {
+                target: RenameTarget::Pane(_),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    #[serial]
+    fn rename_pane_modal_applies_title_and_persists_it() {
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir(&home).unwrap();
+        let mut app = App::new(shell_config(home.clone())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        with_test_home(&home, || {
+            app.handle_key_event(
+                key_event(KeyCode::Char('E'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+                &mut clipboard,
+            )
+        })
+        .unwrap();
+        for _ in 0..6 {
+            with_test_home(&home, || {
+                app.handle_key_event(
+                    key_event(KeyCode::Backspace, KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+            })
+            .unwrap();
+        }
+        for ch in ['e', 'd', 'i', 't', 'o', 'r'] {
+            with_test_home(&home, || {
+                app.handle_key_event(key_event(KeyCode::Char(ch), KeyModifiers::NONE), &mut clipboard)
+            })
+            .unwrap();
+        }
+        with_test_home(&home, || {
+            app.handle_key_event(key_event(KeyCode::Enter, KeyModifiers::NONE), &mut clipboard)
+        })
+        .unwrap();
+
+        assert_eq!(app.tabs.active_pane_title().unwrap(), "editor");
+
+        let restored =
+            with_test_home(&home, || App::restore_or_new(shell_config(home.clone()))).unwrap();
+        assert_eq!(restored.tabs.active_pane_title().unwrap(), "editor");
+    }
+
+    #[test]
+    fn rename_pane_modal_esc_cancels_changes() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        app.open_rename_pane_modal();
+        app.handle_key_event(key_event(KeyCode::Char('x'), KeyModifiers::NONE), &mut clipboard)
+            .unwrap();
+        app.handle_key_event(key_event(KeyCode::Esc, KeyModifiers::NONE), &mut clipboard)
+            .unwrap();
+
+        assert!(app.rename.is_none());
+        assert_eq!(app.tabs.active_pane_title().unwrap(), "pane-0");
+    }
+
+    #[test]
+    fn build_frame_view_uses_pane_title_from_snapshot_data() {
+        let temp = tempdir().unwrap();
+        let dir = temp.path().join("pane");
+        fs::create_dir(&dir).unwrap();
+
+        let snapshot = mtrm_session::SessionSnapshot {
+            tabs: vec![mtrm_session::TabSnapshot {
+                id: mtrm_core::TabId::new(1),
+                title: "main".to_owned(),
+                layout: mtrm_layout::LayoutTree::new(mtrm_core::PaneId::new(10)).to_snapshot(),
+                panes: vec![mtrm_session::PaneSnapshot {
+                    id: mtrm_core::PaneId::new(10),
+                    cwd: dir,
+                    title: "editor".to_owned(),
+                }],
+                active_pane: mtrm_core::PaneId::new(10),
+            }],
+            active_tab: mtrm_core::TabId::new(1),
+        };
+
+        let mut app = App {
+            shell: shell_config(temp.path().to_path_buf()),
+            keymap: Keymap::default(),
+            tabs: mtrm_tabs::TabManager::from_snapshot(snapshot, &shell_config(temp.path().to_path_buf())).unwrap(),
+            selection: None,
+            should_quit: false,
+            ui_dirty: true,
+            window_focused: true,
+            pending_alt_prefix_started_at: None,
+            rename: None,
+        };
+
+        let frame = app
+            .build_frame_view(mtrm_layout::Rect {
+                x: 0,
+                y: 0,
+                width: 80,
+                height: 24,
+            })
+            .unwrap();
+
+        assert_eq!(frame.panes[0].title, "editor");
     }
 
     #[test]

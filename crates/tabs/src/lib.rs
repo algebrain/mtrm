@@ -31,6 +31,7 @@ pub enum TabsError {
 pub struct RuntimePane {
     pub id: PaneId,
     pub cwd: PathBuf,
+    pub title: String,
 }
 
 pub struct RuntimeTab {
@@ -62,7 +63,11 @@ impl TabManager {
         let mut ids = IdAllocator::new();
         let tab_id = ids.next_tab_id();
         let pane_id = ids.next_pane_id();
-        let process = spawn_shell(initial_shell, initial_shell.initial_cwd.clone())?;
+        let process = spawn_shell(
+            initial_shell,
+            initial_shell.initial_cwd.clone(),
+            default_pane_title_for(pane_id),
+        )?;
 
         let tab = TabEntry {
             runtime: RuntimeTab {
@@ -97,7 +102,12 @@ impl TabManager {
         for (index, tab_snapshot) in snapshot.tabs.into_iter().enumerate() {
             let mut processes = BTreeMap::new();
             for pane in &tab_snapshot.panes {
-                processes.insert(pane.id, spawn_shell(shell, pane.cwd.clone())?);
+                let title = if pane.title.is_empty() {
+                    default_pane_title_for(pane.id)
+                } else {
+                    pane.title.clone()
+                };
+                processes.insert(pane.id, spawn_shell(shell, pane.cwd.clone(), title)?);
                 max_pane = max_pane.max(pane.id.get());
             }
 
@@ -143,6 +153,10 @@ impl TabManager {
         self.active_tab().runtime.layout.focused_pane()
     }
 
+    pub fn active_pane_title(&self) -> Result<&str, TabsError> {
+        self.pane_title(self.active_pane_id())
+    }
+
     pub fn tab_ids(&self) -> Vec<TabId> {
         self.tabs.iter().map(|tab| tab.runtime.id).collect()
     }
@@ -162,7 +176,11 @@ impl TabManager {
     pub fn new_tab(&mut self, shell: &ShellProcessConfig) -> Result<TabId, TabsError> {
         let tab_id = self.ids.next_tab_id();
         let pane_id = self.ids.next_pane_id();
-        let process = spawn_shell(shell, shell.initial_cwd.clone())?;
+        let process = spawn_shell(
+            shell,
+            shell.initial_cwd.clone(),
+            default_pane_title_for(pane_id),
+        )?;
 
         self.tabs.push(TabEntry {
             runtime: RuntimeTab {
@@ -208,6 +226,22 @@ impl TabManager {
         Ok(())
     }
 
+    pub fn rename_pane(&mut self, pane_id: PaneId, title: String) -> Result<(), TabsError> {
+        let pane = self
+            .tabs
+            .iter_mut()
+            .find_map(|tab| tab.panes.get_mut(&pane_id))
+            .ok_or(TabsError::PaneNotFound(pane_id))?;
+        pane.title = title;
+        Ok(())
+    }
+
+    pub fn pane_title(&self, pane_id: PaneId) -> Result<&str, TabsError> {
+        self.find_pane(pane_id)
+            .map(|pane| pane.title.as_str())
+            .ok_or(TabsError::PaneNotFound(pane_id))
+    }
+
     pub fn split_active_pane(
         &mut self,
         direction: SplitDirection,
@@ -215,7 +249,7 @@ impl TabManager {
     ) -> Result<PaneId, TabsError> {
         let cwd = self.active_pane_cwd()?;
         let new_pane_id = self.ids.next_pane_id();
-        let process = spawn_shell(shell, cwd)?;
+        let process = spawn_shell(shell, cwd, default_pane_title_for(new_pane_id))?;
         let tab = self.active_tab_mut();
         tab.runtime.layout.split_focused(direction, new_pane_id);
         tab.panes.insert(new_pane_id, process);
@@ -386,7 +420,11 @@ impl TabManager {
                     .get(&pane_id)
                     .ok_or(TabsError::PaneNotFound(pane_id))?;
                 let cwd = process.process.current_dir().map_err(process_error)?;
-                panes.push(PaneSnapshot { id: pane_id, cwd });
+                panes.push(PaneSnapshot {
+                    id: pane_id,
+                    cwd,
+                    title: process.title.clone(),
+                });
             }
 
             tabs.push(TabSnapshot {
@@ -505,9 +543,10 @@ impl TabManager {
 struct PaneEntry {
     process: ShellProcess,
     screen: TerminalScreen,
+    title: String,
 }
 
-fn spawn_shell(shell: &ShellProcessConfig, cwd: PathBuf) -> Result<PaneEntry, TabsError> {
+fn spawn_shell(shell: &ShellProcessConfig, cwd: PathBuf, title: String) -> Result<PaneEntry, TabsError> {
     let config = ShellProcessConfig {
         program: shell.program.clone(),
         args: shell.args.clone(),
@@ -520,7 +559,15 @@ fn spawn_shell(shell: &ShellProcessConfig, cwd: PathBuf) -> Result<PaneEntry, Ta
         DEFAULT_TERMINAL_COLS,
         DEFAULT_SCROLLBACK_LEN,
     );
-    Ok(PaneEntry { process, screen })
+    Ok(PaneEntry {
+        process,
+        screen,
+        title,
+    })
+}
+
+fn default_pane_title_for(pane_id: PaneId) -> String {
+    format!("pane-{}", pane_id.get())
 }
 
 fn process_error(error: impl ToString) -> TabsError {
@@ -785,6 +832,7 @@ mod tests {
         assert_eq!(snapshot.active_tab, TabId::new(0));
         assert_eq!(snapshot.tabs.len(), 1);
         assert_eq!(snapshot.tabs[0].panes[0].cwd, next_dir);
+        assert_eq!(snapshot.tabs[0].panes[0].title, "pane-0");
     }
 
     #[test]
@@ -804,6 +852,7 @@ mod tests {
                     panes: vec![PaneSnapshot {
                         id: PaneId::new(10),
                         cwd: dir_a.clone(),
+                        title: "left".to_owned(),
                     }],
                     active_pane: PaneId::new(10),
                 },
@@ -820,10 +869,12 @@ mod tests {
                         PaneSnapshot {
                             id: PaneId::new(20),
                             cwd: dir_a.clone(),
+                            title: "".to_owned(),
                         },
                         PaneSnapshot {
                             id: PaneId::new(21),
                             cwd: dir_b.clone(),
+                            title: "right".to_owned(),
                         },
                     ],
                     active_pane: PaneId::new(21),
@@ -838,6 +889,9 @@ mod tests {
         assert_eq!(manager.tab_ids(), vec![TabId::new(5), TabId::new(6)]);
         assert_eq!(manager.active_tab_id(), TabId::new(6));
         assert_eq!(manager.active_pane_id(), PaneId::new(21));
+        assert_eq!(manager.pane_title(PaneId::new(10)).unwrap(), "left");
+        assert_eq!(manager.pane_title(PaneId::new(20)).unwrap(), "pane-20");
+        assert_eq!(manager.pane_title(PaneId::new(21)).unwrap(), "right");
     }
 
     #[test]
@@ -852,6 +906,28 @@ mod tests {
         assert_eq!(manager.active_tab_title(), "renamed");
         let snapshot = manager.snapshot().unwrap();
         assert_eq!(snapshot.tabs[0].title, "renamed");
+    }
+
+    #[test]
+    fn active_pane_title_comes_from_runtime_data() {
+        let temp = tempdir().unwrap();
+        let manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+
+        assert_eq!(manager.active_pane_title().unwrap(), "pane-0");
+    }
+
+    #[test]
+    fn rename_pane_updates_runtime_title_and_snapshot() {
+        let temp = tempdir().unwrap();
+        let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+
+        manager
+            .rename_pane(PaneId::new(0), "editor".to_owned())
+            .unwrap();
+
+        assert_eq!(manager.active_pane_title().unwrap(), "editor");
+        let snapshot = manager.snapshot().unwrap();
+        assert_eq!(snapshot.tabs[0].panes[0].title, "editor");
     }
 
     #[test]

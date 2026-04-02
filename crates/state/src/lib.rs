@@ -242,6 +242,7 @@ mod tests {
                 panes: vec![PaneSnapshot {
                     id: PaneId::new(10),
                     cwd: PathBuf::from("/tmp"),
+                    title: "pane-10".to_owned(),
                 }],
                 active_pane: PaneId::new(10),
             }],
@@ -313,6 +314,21 @@ mod tests {
         let loaded = load_state_with_legacy_fallback(&yaml_path).unwrap();
 
         assert_eq!(loaded, Some(snapshot));
+    }
+
+    #[test]
+    fn yaml_without_pane_title_still_loads() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("state.yaml");
+        fs::write(
+            &path,
+            "version: 0.0.1\nactive_tab: 1\ntabs:\n  - id: 1\n    title: main\n    layout:\n      root:\n        Pane:\n          pane_id: 10\n      focused_pane: 10\n    panes:\n      - id: 10\n        cwd: /tmp\n    active_pane: 10\n",
+        )
+        .unwrap();
+
+        let loaded = load_state_from_path(&path).unwrap().unwrap();
+
+        assert_eq!(loaded.tabs[0].panes[0].title, "");
     }
 
     #[test]

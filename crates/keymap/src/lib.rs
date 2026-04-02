@@ -19,6 +19,7 @@ pub struct Keymap {
     pub new_tab: BTreeSet<char>,
     pub close_tab: BTreeSet<char>,
     pub rename_tab: BTreeSet<char>,
+    pub rename_pane: BTreeSet<char>,
     pub quit: BTreeSet<char>,
     pub previous_tab: BTreeSet<char>,
     pub next_tab: BTreeSet<char>,
@@ -57,6 +58,10 @@ impl Keymap {
 
     pub fn matches_rename_tab(&self, ch: char) -> bool {
         self.rename_tab.contains(&ch)
+    }
+
+    pub fn matches_rename_pane(&self, ch: char) -> bool {
+        self.rename_pane.contains(&ch)
     }
 
     pub fn matches_quit(&self, ch: char) -> bool {
@@ -124,6 +129,8 @@ struct CommandsFile {
     close_tab: Vec<String>,
     #[serde(default = "default_rename_tab_bindings")]
     rename_tab: Vec<String>,
+    #[serde(default = "default_rename_pane_bindings")]
+    rename_pane: Vec<String>,
     quit: Vec<String>,
     previous_tab: Vec<String>,
     next_tab: Vec<String>,
@@ -141,6 +148,7 @@ impl TryFrom<KeymapFile> for Keymap {
             new_tab: parse_chars("new_tab", value.commands.new_tab)?,
             close_tab: parse_chars("close_tab", value.commands.close_tab)?,
             rename_tab: parse_chars("rename_tab", value.commands.rename_tab)?,
+            rename_pane: parse_chars("rename_pane", value.commands.rename_pane)?,
             quit: parse_chars("quit", value.commands.quit)?,
             previous_tab: parse_chars("previous_tab", value.commands.previous_tab)?,
             next_tab: parse_chars("next_tab", value.commands.next_tab)?,
@@ -150,6 +158,10 @@ impl TryFrom<KeymapFile> for Keymap {
 
 fn default_rename_tab_bindings() -> Vec<String> {
     vec!["R".to_owned(), "К".to_owned()]
+}
+
+fn default_rename_pane_bindings() -> Vec<String> {
+    vec!["E".to_owned(), "У".to_owned()]
 }
 
 fn parse_chars(name: &'static str, values: Vec<String>) -> Result<BTreeSet<char>, KeymapError> {
@@ -279,6 +291,7 @@ mod tests {
         assert!(keymap.matches_new_tab('ν'));
         assert!(keymap.matches_copy('λ'));
         assert!(keymap.matches_rename_tab('R'));
+        assert!(keymap.matches_rename_pane('У'));
     }
 
     #[test]
@@ -292,6 +305,7 @@ mod tests {
         assert!(keymap.matches_interrupt('χ'));
         assert!(keymap.matches_new_tab('τ'));
         assert!(keymap.matches_rename_tab('К'));
+        assert!(keymap.matches_rename_pane('E'));
         assert!(keymap.matches_quit(':'));
     }
 

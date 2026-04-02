@@ -26,6 +26,12 @@ pub struct TabSnapshot {
 pub struct PaneSnapshot {
     pub id: PaneId,
     pub cwd: PathBuf,
+    #[serde(default = "default_pane_title")]
+    pub title: String,
+}
+
+pub fn default_pane_title() -> String {
+    String::new()
 }
 
 impl SessionSnapshot {
@@ -124,6 +130,7 @@ mod tests {
         PaneSnapshot {
             id,
             cwd: PathBuf::from(cwd),
+            title: default_pane_title(),
         }
     }
 
@@ -244,6 +251,30 @@ mod tests {
             snapshot.validate(),
             Err(SessionValidationError::DuplicatePaneId(PaneId::new(10)))
         );
+    }
+
+    #[test]
+    fn missing_pane_title_deserializes_with_default() {
+        let json = r#"{
+            "tabs": [{
+                "id": 1,
+                "title": "main",
+                "layout": {
+                    "root": { "Pane": { "pane_id": 10 } },
+                    "focused_pane": 10
+                },
+                "panes": [{
+                    "id": 10,
+                    "cwd": "/tmp"
+                }],
+                "active_pane": 10
+            }],
+            "active_tab": 1
+        }"#;
+
+        let snapshot: SessionSnapshot = serde_json::from_str(json).unwrap();
+
+        assert_eq!(snapshot.tabs[0].panes[0].title, "");
     }
 
     #[test]

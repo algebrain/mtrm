@@ -92,7 +92,7 @@ fn render_tabs(frame: &mut ratatui::Frame<'_>, frame_view: &FrameView, area: Tui
     let tabs = Tabs::new(titles)
         .select(selected)
         .highlight_style(active_tab_style(frame_view.focused))
-        .divider(Span::raw(" "))
+        .divider(Span::styled(" | ", Style::default().fg(Color::DarkGray)))
         .padding("", "")
         .style(Style::default().fg(Color::Gray));
 
@@ -576,6 +576,38 @@ mod tests {
             .collect();
         assert!(line.contains("one"));
         assert!(line.contains("two"));
+    }
+
+    #[test]
+    fn tab_divider_uses_dark_gray_style() {
+        let terminal = render(
+            &FrameView {
+                tabs: vec![
+                    TabView {
+                        id: TabId::new(1),
+                        title: "one".to_owned(),
+                        active: false,
+                    },
+                    TabView {
+                        id: TabId::new(2),
+                        title: "two".to_owned(),
+                        active: true,
+                    },
+                ],
+                panes: vec![],
+                focused: true,
+                modal: None,
+            },
+            20,
+            5,
+        );
+
+        let buffer = terminal.backend().buffer();
+        let divider_x = (0..20)
+            .find(|x| buffer[(*x, 0)].symbol() == "|")
+            .expect("expected divider between tab titles");
+
+        assert_eq!(buffer[(divider_x, 0)].style().fg, Some(Color::DarkGray));
     }
 
     #[test]
