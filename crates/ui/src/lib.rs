@@ -1,7 +1,5 @@
 //! Отрисовка интерфейса `mtrm`.
 
-use std::io;
-
 use mtrm_core::{PaneId, TabId};
 use mtrm_layout::Rect;
 use mtrm_terminal_screen::{ScreenColor, ScreenLine};
@@ -58,7 +56,7 @@ pub struct ModalView {
 pub fn render_frame<B: Backend>(
     terminal: &mut Terminal<B>,
     frame_view: &FrameView,
-) -> io::Result<()> {
+) -> Result<(), B::Error> {
     terminal.draw(|frame| {
         let full = frame.area();
 

@@ -30,7 +30,7 @@ mtrm-session = { path = "../crates/session" }
 mtrm-state = { path = "../crates/state" }
 mtrm-tabs = { path = "../crates/tabs" }
 mtrm-ui = { path = "../crates/ui" }
-ratatui = "0.28"
+ratatui = "0.30"
 thiserror = "2"
 
 [dev-dependencies]

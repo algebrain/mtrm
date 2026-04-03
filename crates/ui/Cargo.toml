@@ -10,4 +10,4 @@ path = "src/lib.rs"
 mtrm-core = { path = "../core" }
 mtrm-layout = { path = "../layout" }
 mtrm-terminal-screen = { path = "../terminal_screen" }
-ratatui = "0.28"
+ratatui = "0.30"
