@@ -15,3 +15,8 @@ members = [
     "app",
 ]
 resolver = "2"
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1
