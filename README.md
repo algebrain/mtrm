@@ -1,40 +1,70 @@
 # mtrm
 
+[![CI](https://github.com/algebrain/mtrm/actions/workflows/rust.yml/badge.svg)](https://github.com/algebrain/mtrm/actions/workflows/rust.yml)
+[![Latest Release](https://img.shields.io/github/v/release/algebrain/mtrm)](https://github.com/algebrain/mtrm/releases)
+[![Platform](https://img.shields.io/badge/platform-Linux%20desktop-2ea44f)](https://github.com/algebrain/mtrm)
+
 ![mtrm screenshot](docs/readme-assets/mtrm-screenshot.png)
 
-`mtrm` is a personal terminal workspace manager for local shell work.
+`mtrm` is a personal terminal workspace manager for local Linux shell work.
 
-It gives you tabs, pane splits, keyboard-driven focus movement, clipboard integration, and automatic persistence of layout and working directories.
+It gives me tabs, pane splits, keyboard-driven focus movement, desktop clipboard integration, and automatic persistence of layout and working directories.
 
-It is intentionally opinionated and built around my own workflow rather than traditional terminal conventions.
+It is intentionally opinionated and optimized for my own desktop workflow rather than traditional terminal or tmux conventions.
 
 In particular, `Ctrl+C` is used for copy, `Ctrl+V` for paste, and `Alt+X` for interrupt.
 
-This repository is primarily a working codebase for the tool itself, but it also contains the internal engineering notes used to evolve it.
+If you want a local shell workspace with saved layout, familiar copy/paste, and no separate multiplexer layer to manage, that is the problem `mtrm` is trying to solve.
 
-## Platform Status
+This repository contains the application and the design notes behind it.
 
-`mtrm` is currently tested only on Linux.
+## What It Does
+
+- Runs local shells in PTYs
+- Supports multiple tabs
+- Splits the active tab into multiple panes
+- Moves focus between panes with the keyboard
+- Copies and pastes through the desktop clipboard
+- Saves and restores layout, active tab, active pane, and pane working directories
+
+By default, `mtrm` starts `$SHELL -i`. If `$SHELL` is not set, it falls back to `/bin/sh -i`.
+
+`mtrm` does not restore old live processes after restart. It recreates fresh shells in the saved working directories.
+
+## Scope and Limits
+
+`mtrm` is currently a Linux-first tool for local desktop use.
 
 More specifically, the implementation in this repository has been tested on:
 
 - Linux Mint 22.3
 
+Current expectations:
+
+- It is meant to run locally on a Linux desktop session
+- It is not designed as a remote terminal or server session manager
+- It currently requires a working local system clipboard backend to start
+- Clipboard support depends on the local desktop environment and may fail in headless or remote sessions
+- State restore brings back layout and working directories, not old running processes
+- Windows and macOS builds are not supported targets yet
+
 ## Installation
 
 ### Download from Releases
 
-GitHub Releases now publish two Linux artifacts that you can download directly:
+GitHub Releases publish Linux artifacts you can download directly:
 
 - `mtrm.deb`
 - `mtrm`
+- `mtrm-x86_64-unknown-linux-musl`
 
-At the moment, the only release artifacts considered working and supported are the Ubuntu-built ones:
+Use them like this:
 
-- the Debian package for Ubuntu-style installation
-- the Linux executable file
+- `mtrm.deb`: Debian or Ubuntu-style installation
+- `mtrm`: the regular GNU/Linux executable
+- `mtrm-x86_64-unknown-linux-musl`: a statically linked Linux binary for systems where the regular executable fails with errors such as `GLIBC_x.y not found`
 
-The CI workflow may also attempt to build Windows and macOS artifacts, but those should not yet be treated as supported release deliverables.
+At the moment, the supported release targets are Linux only.
 
 ### Build and run from source
 
@@ -43,6 +73,8 @@ From the repository root:
 ```bash
 cargo run -p mtrm
 ```
+
+This starts `mtrm` with your current `$SHELL` in interactive mode.
 
 ### Install into `~/.local/bin`
 
@@ -70,17 +102,6 @@ mtrm --debug-log /tmp/mtrm-pty.log
 - `--version` / `-v` prints version and exits
 - `--debug-log PATH` appends raw PTY output chunks to `PATH` for terminal-debugging sessions
 
-## What It Does
-
-- Runs local shells in PTYs
-- Supports multiple tabs
-- Splits the active tab into multiple panes
-- Moves focus between panes with the keyboard
-- Copies and pastes through the system clipboard
-- Saves and restores layout, active tab, active pane, and pane working directories
-
-`mtrm` does not restore old live processes after restart. It recreates fresh shells in the saved working directories.
-
 ## Default Keybindings
 
 - `Ctrl+C`: copy selected text
@@ -101,6 +122,7 @@ mtrm --debug-log /tmp/mtrm-pty.log
 - `Alt+Left` / `Alt+Right` / `Alt+Up` / `Alt+Down`: move focus between panes
 - `Shift+Up` / `Shift+Down`: scroll pane history by one line
 - `Shift+PageUp` / `Shift+PageDown`: scroll pane history by one screen
+- `Home`: send Home to the active shell
 - `End`: return to the live bottom of the active pane
 
 Letter-based shortcuts are configured through `~/.mtrm/keymap.toml`.
