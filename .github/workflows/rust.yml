@@ -57,8 +57,44 @@ jobs:
         path: target/debian/mtrm.deb
         if-no-files-found: error
 
+  build-linux-static:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install musl toolchain
+      run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+    - name: Install Rust with musl target
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-unknown-linux-musl
+
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ubuntu-latest-musl-v1
+
+    - name: Build static release
+      run: cargo build --release --target x86_64-unknown-linux-musl --verbose
+
+    - name: Prepare static artifact
+      run: |
+        mkdir -p target/dist
+        cp target/x86_64-unknown-linux-musl/release/mtrm target/dist/mtrm-x86_64-unknown-linux-musl
+
+    - name: Upload static Linux artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mtrm-linux-static
+        path: target/dist/mtrm-x86_64-unknown-linux-musl
+        if-no-files-found: error
+
   create-release:
-    needs: test-and-build
+    needs:
+      - test-and-build
+      - build-linux-static
     # На теге всегда пытаемся собрать релиз из тех артефактов, которые реально доехали.
     if: ${{ always() && startsWith(github.ref, 'refs/tags/v') }}
     
@@ -77,7 +113,7 @@ jobs:
         id: artifacts
         shell: bash
         run: |
-          if [ -f artifacts/mtrm-linux/mtrm ] || [ -f artifacts/mtrm-linux-deb/mtrm.deb ] || [ -f artifacts/mtrm-windows/mtrm.exe ] || [ -f artifacts/mtrm-macos/mtrm ]; then
+          if [ -f artifacts/mtrm-linux/mtrm ] || [ -f artifacts/mtrm-linux-static/mtrm-x86_64-unknown-linux-musl ] || [ -f artifacts/mtrm-linux-deb/mtrm.deb ] || [ -f artifacts/mtrm-windows/mtrm.exe ] || [ -f artifacts/mtrm-macos/mtrm ]; then
             echo "has_files=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_files=false" >> "$GITHUB_OUTPUT"
@@ -90,6 +126,7 @@ jobs:
           # Ищем файлы рекурсивно во всех подпапках скачанных артефактов
           files: |
             artifacts/mtrm-linux/mtrm
+            artifacts/mtrm-linux-static/mtrm-x86_64-unknown-linux-musl
             artifacts/mtrm-linux-deb/mtrm.deb
             artifacts/mtrm-windows/mtrm.exe
             artifacts/mtrm-macos/mtrm
