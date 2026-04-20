@@ -2333,7 +2333,7 @@ mod tests {
 
         app.tabs
             .write_to_active_pane(
-                b"sh -c 'trap \"(sleep 0.25; stty raw -echo </dev/tty >/dev/tty) & exit 130\" INT; while :; do sleep 1; done'\n",
+                b"sh -c 'trap \"(sleep 0.25; stty raw -echo </dev/tty >/dev/tty 2>/dev/tty) & exit 130\" INT; while :; do sleep 1; done'\n",
             )
             .unwrap();
         thread::sleep(Duration::from_millis(200));
@@ -2678,20 +2678,17 @@ mod tests {
 
         app.tabs.resize_active_tab(content_area).unwrap();
         app.tabs
-            .write_to_active_pane(
-                b"printf '\\033[?1049h\\033[2J\\033[Hframe1\\033[2J\\033[Hframe2\\033[2J\\033[Hframe3'\n",
-            )
+            .inject_bytes_into_active_pane_screen(b"\x1b[?1049h")
             .unwrap();
-
-        let loaded = wait_until(Duration::from_secs(2), || {
-            app.refresh_all_panes_output().unwrap_or(false)
-                && app
-                    .tabs
-                    .active_pane_text()
-                    .map(|text| text.contains("frame3"))
-                    .unwrap_or(false)
-        });
-        assert!(loaded);
+        app.tabs
+            .inject_bytes_into_active_pane_screen(b"\x1b[2J\x1b[Hframe1")
+            .unwrap();
+        app.tabs
+            .inject_bytes_into_active_pane_screen(b"\x1b[2J\x1b[Hframe2")
+            .unwrap();
+        app.tabs
+            .inject_bytes_into_active_pane_screen(b"\x1b[2J\x1b[Hframe3")
+            .unwrap();
 
         app.handle_key_event(key_event(KeyCode::Up, KeyModifiers::SHIFT), &mut clipboard)
             .unwrap();

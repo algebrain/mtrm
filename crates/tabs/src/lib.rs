@@ -470,6 +470,17 @@ impl TabManager {
             .ok_or(TabsError::PaneNotFound(pane_id))
     }
 
+    pub fn inject_bytes_into_active_pane_screen(&mut self, bytes: &[u8]) -> Result<(), TabsError> {
+        let pane_id = self.active_pane_id();
+        let pane = self
+            .active_tab_mut()
+            .panes
+            .get_mut(&pane_id)
+            .ok_or(TabsError::PaneNotFound(pane_id))?;
+        pane.screen.process_bytes(bytes);
+        Ok(())
+    }
+
     pub fn refresh_all_panes(&mut self) -> Result<bool, TabsError> {
         let mut changed = false;
 
