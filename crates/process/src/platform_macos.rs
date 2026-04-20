@@ -3,6 +3,7 @@ use std::mem::size_of;
 use std::path::PathBuf;
 
 use nix::libc;
+use nix::sys::termios::Termios;
 
 use crate::ProcessError;
 
@@ -45,6 +46,30 @@ pub(crate) fn resolve_current_dir_via_libproc(process_id: u32) -> Result<PathBuf
     }
 
     Ok(path)
+}
+
+pub(crate) fn resolve_current_dir(process_id: u32) -> Result<PathBuf, ProcessError> {
+    resolve_current_dir_via_libproc(process_id)
+}
+
+pub(crate) fn descendant_pids(_root_pid: i32) -> Vec<i32> {
+    Vec::new()
+}
+
+pub(crate) fn has_lingering_tty_processes_for_interrupted_group(
+    _process_id: u32,
+    _shell_process_group_id: i32,
+    _interrupted_process_group_id: i32,
+    _descendants: &[i32],
+) -> bool {
+    false
+}
+
+pub(crate) fn apply_termios_via_shell_tty(
+    _process_id: u32,
+    _termios: &Termios,
+) -> Result<(), std::io::Error> {
+    Ok(())
 }
 
 fn vip_path_to_path_buf(vip_path: &[[libc::c_char; 32]; 32]) -> Result<PathBuf, ProcessError> {

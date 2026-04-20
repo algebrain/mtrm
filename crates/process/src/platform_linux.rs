@@ -22,6 +22,10 @@ pub(crate) fn resolve_current_dir_via_procfs(process_id: u32) -> Result<PathBuf,
     fs::read_link(proc_path).map_err(|error| ProcessError::CurrentDir(error.to_string()))
 }
 
+pub(crate) fn resolve_current_dir(process_id: u32) -> Result<PathBuf, ProcessError> {
+    resolve_current_dir_via_procfs(process_id)
+}
+
 pub(crate) fn descendant_pids(root_pid: i32) -> Vec<i32> {
     let mut result = Vec::new();
     collect_descendant_pids(root_pid, &mut result);
@@ -42,6 +46,21 @@ pub(crate) fn lingering_tty_processes_for_interrupted_group(
         .filter(|summary| !descendants.contains(&(summary.pid as i32)))
         .map(|_| ())
         .collect()
+}
+
+pub(crate) fn has_lingering_tty_processes_for_interrupted_group(
+    process_id: u32,
+    shell_process_group_id: i32,
+    interrupted_process_group_id: i32,
+    descendants: &[i32],
+) -> bool {
+    !lingering_tty_processes_for_interrupted_group(
+        process_id,
+        shell_process_group_id,
+        interrupted_process_group_id,
+        descendants,
+    )
+    .is_empty()
 }
 
 pub(crate) fn apply_termios_via_shell_tty(

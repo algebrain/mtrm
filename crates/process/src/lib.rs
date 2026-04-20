@@ -25,6 +25,15 @@ use thiserror::Error;
 mod platform_linux;
 #[cfg(target_os = "macos")]
 mod platform_macos;
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+mod platform_other;
+
+#[cfg(target_os = "linux")]
+use self::platform_linux as platform;
+#[cfg(target_os = "macos")]
+use self::platform_macos as platform;
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+use self::platform_other as platform;
 
 const MAX_READ_BUFFER_BYTES: usize = 65_536;
 const TERM_PROGRAM_NAME: &str = "mtrm";
@@ -192,20 +201,7 @@ impl ShellProcess {
     }
 
     pub fn current_dir(&self) -> Result<PathBuf, ProcessError> {
-        #[cfg(target_os = "linux")]
-        {
-            platform_linux::resolve_current_dir_via_procfs(self.process_id)
-        }
-
-        #[cfg(target_os = "macos")]
-        {
-            platform_macos::resolve_current_dir_via_libproc(self.process_id)
-        }
-
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        {
-            Err(unsupported_current_dir_error())
-        }
+        platform::resolve_current_dir(self.process_id)
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16) -> Result<(), ProcessError> {
@@ -231,11 +227,7 @@ impl ShellProcess {
     }
 
     fn terminate_process_group(&mut self) -> Result<(), ProcessError> {
-        #[cfg(target_os = "linux")]
-        let descendants = platform_linux::descendant_pids(self.process_id as i32);
-
-        #[cfg(not(target_os = "linux"))]
-        let descendants: Vec<i32> = Vec::new();
+        let descendants = platform::descendant_pids(self.process_id as i32);
 
         for pid in &descendants {
             let _ = signal::kill(Pid::from_raw(*pid), Signal::SIGHUP);
@@ -337,17 +329,8 @@ impl ShellProcess {
             return Ok(());
         };
 
-        #[cfg(target_os = "linux")]
-        {
-            platform_linux::apply_termios_via_shell_tty(self.process_id, baseline_termios)
-                .map_err(|error| ProcessError::Interrupt(error.to_string()))
-        }
-
-        #[cfg(not(target_os = "linux"))]
-        {
-            let _ = baseline_termios;
-            Ok(())
-        }
+        platform::apply_termios_via_shell_tty(self.process_id, baseline_termios)
+            .map_err(|error| ProcessError::Interrupt(error.to_string()))
     }
 
     fn cleanup_lingering_tty_processes_after_interrupt(
@@ -360,24 +343,16 @@ impl ShellProcess {
             let foreground_process_group_id =
                 self.master.process_group_leader().map(|pid| pid as i32);
             let shell_is_foreground = foreground_process_group_id == Some(self.process_group_id);
-            #[cfg(target_os = "linux")]
-            let descendants = platform_linux::descendant_pids(self.process_id as i32);
+            let descendants = platform::descendant_pids(self.process_id as i32);
 
-            #[cfg(not(target_os = "linux"))]
-            let _descendants: Vec<i32> = Vec::new();
-
-            #[cfg(target_os = "linux")]
-            let lingering = platform_linux::lingering_tty_processes_for_interrupted_group(
+            let lingering = platform::has_lingering_tty_processes_for_interrupted_group(
                 self.process_id,
                 self.process_group_id,
                 interrupted_process_group_id,
                 &descendants,
             );
 
-            #[cfg(not(target_os = "linux"))]
-            let lingering: Vec<()> = Vec::new();
-
-            if !shell_is_foreground || lingering.is_empty() {
+            if !shell_is_foreground || !lingering {
                 continue;
             }
 
@@ -389,24 +364,16 @@ impl ShellProcess {
             );
             thread::sleep(Duration::from_millis(50));
 
-            #[cfg(target_os = "linux")]
-            let descendants = platform_linux::descendant_pids(self.process_id as i32);
+            let descendants = platform::descendant_pids(self.process_id as i32);
 
-            #[cfg(not(target_os = "linux"))]
-            let _descendants: Vec<i32> = Vec::new();
-
-            #[cfg(target_os = "linux")]
-            let still_lingering = platform_linux::lingering_tty_processes_for_interrupted_group(
+            let still_lingering = platform::has_lingering_tty_processes_for_interrupted_group(
                 self.process_id,
                 self.process_group_id,
                 interrupted_process_group_id,
                 &descendants,
             );
 
-            #[cfg(not(target_os = "linux"))]
-            let still_lingering: Vec<()> = Vec::new();
-
-            if still_lingering.is_empty() {
+            if !still_lingering {
                 return Ok(());
             }
 
@@ -426,11 +393,6 @@ impl Drop for ShellProcess {
     fn drop(&mut self) {
         let _ = self.terminate_process_group();
     }
-}
-
-#[cfg_attr(target_os = "linux", allow(dead_code))]
-fn unsupported_current_dir_error() -> ProcessError {
-    ProcessError::CurrentDir("cwd resolution unsupported on this platform".to_owned())
 }
 
 fn spawn_reader_thread(
@@ -830,7 +792,7 @@ mod tests {
 
     #[test]
     fn unsupported_cwd_strategy_returns_current_dir_error() {
-        match unsupported_current_dir_error() {
+        match ProcessError::CurrentDir("cwd resolution unsupported on this platform".to_owned()) {
             ProcessError::CurrentDir(detail) => {
                 assert!(detail.contains("unsupported"));
             }
