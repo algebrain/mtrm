@@ -1017,6 +1017,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn send_interrupt_cleans_up_orphaned_same_tty_processes_from_interrupted_group() {
         let temp = tempdir().unwrap();
