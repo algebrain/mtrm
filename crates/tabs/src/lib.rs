@@ -866,6 +866,7 @@ mod tests {
         let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
         let next_dir = temp.path().join("next");
         fs::create_dir(&next_dir).unwrap();
+        let next_dir = fs::canonicalize(next_dir).unwrap();
         manager
             .write_to_active_pane(format!("cd '{}'\n", next_dir.display()).as_bytes())
             .unwrap();
@@ -1004,6 +1005,7 @@ mod tests {
         let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
         let next_dir = temp.path().join("cwd-next");
         fs::create_dir(&next_dir).unwrap();
+        let next_dir = fs::canonicalize(next_dir).unwrap();
 
         manager
             .write_to_active_pane(format!("cd '{}'\n", next_dir.display()).as_bytes())

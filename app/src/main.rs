@@ -3146,6 +3146,8 @@ mod tests {
         let home = temp.path().join("home");
         let pane_dir = home.join("pane");
         fs::create_dir_all(&pane_dir).unwrap();
+        let home = fs::canonicalize(home).unwrap();
+        let pane_dir = fs::canonicalize(pane_dir).unwrap();
 
         let mut app = App::new(shell_config(home.clone())).unwrap();
         app.handle_layout_command(LayoutCommand::SplitFocused(

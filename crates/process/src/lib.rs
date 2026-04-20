@@ -707,6 +707,8 @@ mod tests {
         let next_dir = temp.path().join("next");
         fs::create_dir(&initial_dir).unwrap();
         fs::create_dir(&next_dir).unwrap();
+        let initial_dir = fs::canonicalize(initial_dir).unwrap();
+        let next_dir = fs::canonicalize(next_dir).unwrap();
         let mut process = ShellProcess::spawn(shell_config(initial_dir.clone())).unwrap();
 
         assert_eq!(process.current_dir().unwrap(), initial_dir);
@@ -722,6 +724,28 @@ mod tests {
                 .unwrap_or(false)
         });
         assert!(changed, "shell cwd did not change to {:?}", next_dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn current_dir_returns_canonical_temp_path_on_macos() {
+        let temp = tempdir().unwrap();
+        let canonical_dir = fs::canonicalize(temp.path()).unwrap();
+        let canonical_text = canonical_dir.to_string_lossy();
+        let alias_text = canonical_text.replacen("/private/var/", "/var/", 1);
+
+        assert_ne!(
+            alias_text, canonical_text,
+            "test requires a canonical /private/var/... path on macOS"
+        );
+
+        let alias_dir = PathBuf::from(alias_text);
+        assert!(alias_dir.exists(), "alias temp path must exist: {:?}", alias_dir);
+
+        let mut process = ShellProcess::spawn(shell_config(alias_dir.clone())).unwrap();
+
+        assert_eq!(process.current_dir().unwrap(), canonical_dir);
+        assert_ne!(alias_dir, canonical_dir);
     }
 
     #[test]
