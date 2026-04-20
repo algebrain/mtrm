@@ -712,6 +712,8 @@ impl App {
     fn build_frame_view(&mut self, content_area: mtrm_layout::Rect) -> Result<FrameView, AppError> {
         let snapshot = self.tabs.snapshot().map_err(tabs_error)?;
         let active_tab = snapshot.active_tab;
+        let active_pane = self.tabs.active_pane_id();
+        let active_pane_is_scrolled_back = self.tabs.active_pane_is_scrolled_back().unwrap_or(false);
         let active_tab_snapshot = snapshot
             .tabs
             .iter()
@@ -731,23 +733,30 @@ impl App {
         let placements = self.tabs.placements(content_area).map_err(tabs_error)?;
         let panes = placements
             .into_iter()
-            .map(|(id, area, focused)| PaneView {
-                id,
-                title: self
-                    .tabs
-                    .pane_title(id)
-                    .map(|title| title.to_owned())
-                    .map_err(tabs_error)
-                    .unwrap_or_else(|_| format!("pane-{}", id.get())),
-                area,
-                active: focused,
-                lines: self
-                    .tabs
-                    .pane_lines(id)
-                    .map_err(tabs_error)
-                    .unwrap_or_default(),
-                selection: self.selection.and_then(|selection| selection.view_for(id)),
-                cursor: self.tabs.pane_cursor(id).ok().flatten(),
+            .map(|(id, area, focused)| {
+                let cursor = if id == active_pane && active_pane_is_scrolled_back {
+                    None
+                } else {
+                    self.tabs.pane_cursor(id).ok().flatten()
+                };
+                PaneView {
+                    id,
+                    title: self
+                        .tabs
+                        .pane_title(id)
+                        .map(|title| title.to_owned())
+                        .map_err(tabs_error)
+                        .unwrap_or_else(|_| format!("pane-{}", id.get())),
+                    area,
+                    active: focused,
+                    lines: self
+                        .tabs
+                        .pane_lines(id)
+                        .map_err(tabs_error)
+                        .unwrap_or_default(),
+                    selection: self.selection.and_then(|selection| selection.view_for(id)),
+                    cursor,
+                }
             })
             .collect();
 
