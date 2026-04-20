@@ -500,7 +500,7 @@ impl TabManager {
     pub fn active_pane_is_scrolled_back(&self) -> Result<bool, TabsError> {
         let pane_id = self.active_pane_id();
         self.find_pane(pane_id)
-            .map(|pane| pane.screen.scrollback() > 0)
+            .map(|pane| pane.screen.shows_history_snapshot() || pane.screen.scrollback() > 0)
             .ok_or(TabsError::PaneNotFound(pane_id))
     }
 
@@ -523,10 +523,10 @@ impl TabManager {
     pub fn pane_cursor(&self, pane_id: PaneId) -> Result<Option<(u16, u16)>, TabsError> {
         self.find_pane(pane_id)
             .map(|pane| {
-                if pane.screen.scrollback() == 0 {
-                    Some(pane.screen.cursor_position())
-                } else {
+                if pane.screen.shows_history_snapshot() || pane.screen.scrollback() > 0 {
                     None
+                } else {
+                    Some(pane.screen.cursor_position())
                 }
             })
             .ok_or(TabsError::PaneNotFound(pane_id))
@@ -1186,6 +1186,48 @@ mod tests {
         manager.scroll_active_pane_to_bottom().unwrap();
         let bottom = manager.active_pane_text().unwrap();
         assert!(bottom.contains("frame3"));
+    }
+
+    #[test]
+    fn active_pane_scrollback_state_tracks_alternate_history_snapshot() {
+        let temp = tempdir().unwrap();
+        let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+        let pane_id = manager.active_pane_id();
+
+        {
+            let pane = manager.active_tab_mut().panes.get_mut(&pane_id).unwrap();
+            pane.screen.process_bytes(b"\x1b[?1049h");
+            pane.screen.process_bytes(b"\x1b[2J\x1b[Hframe1");
+            pane.screen.process_bytes(b"\x1b[2J\x1b[Hframe2");
+        }
+
+        assert!(!manager.active_pane_is_scrolled_back().unwrap());
+
+        manager.scroll_active_pane_up_lines(1).unwrap();
+
+        assert!(manager.active_pane_is_scrolled_back().unwrap());
+        assert!(manager.active_pane_text().unwrap().contains("frame1"));
+    }
+
+    #[test]
+    fn pane_cursor_is_hidden_when_alternate_history_snapshot_is_visible() {
+        let temp = tempdir().unwrap();
+        let mut manager = TabManager::new(&shell_config(temp.path().to_path_buf())).unwrap();
+        let pane_id = manager.active_pane_id();
+
+        {
+            let pane = manager.active_tab_mut().panes.get_mut(&pane_id).unwrap();
+            pane.screen.process_bytes(b"\x1b[?1049h");
+            pane.screen.process_bytes(b"\x1b[2J\x1b[Hframe1");
+            pane.screen.process_bytes(b"\x1b[2J\x1b[Hframe2");
+        }
+
+        assert!(manager.pane_cursor(pane_id).unwrap().is_some());
+
+        manager.scroll_active_pane_up_lines(1).unwrap();
+
+        assert!(manager.active_pane_text().unwrap().contains("frame1"));
+        assert_eq!(manager.pane_cursor(pane_id).unwrap(), None);
     }
 
     #[test]

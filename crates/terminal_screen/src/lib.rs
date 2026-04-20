@@ -195,6 +195,10 @@ impl TerminalScreen {
         self.current_screen_lines()
     }
 
+    pub fn shows_history_snapshot(&self) -> bool {
+        self.normal_history_snapshot().is_some() || self.alternate_history_snapshot().is_some()
+    }
+
     pub fn scrollback(&self) -> usize {
         match self.screen_mode {
             ScreenMode::Normal => {
@@ -793,6 +797,19 @@ mod tests {
 
         assert!(previous.iter().any(|row| row.contains("same")));
         assert_eq!(screen.scrollback(), 1);
+    }
+
+    #[test]
+    fn shows_history_snapshot_is_false_for_live_alternate_screen_and_true_when_scrolled_back() {
+        let mut screen = TerminalScreen::new(3, 20, 10);
+
+        screen.process_bytes(b"\x1b[?1049h\x1b[2J\x1b[Hframe1\x1b[2J\x1b[Hframe2");
+        assert!(!screen.shows_history_snapshot());
+
+        screen.set_scrollback(1);
+
+        assert!(screen.shows_history_snapshot());
+        assert!(screen.visible_rows().iter().any(|row| row.contains("frame1")));
     }
 
     #[test]
