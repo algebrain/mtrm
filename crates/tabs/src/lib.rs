@@ -860,6 +860,7 @@ mod tests {
         ));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn snapshot_reflects_current_state() {
         let temp = tempdir().unwrap();
@@ -998,6 +999,7 @@ mod tests {
         assert!(output.contains("__TABS_INTERRUPT__"));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn active_pane_cwd_returns_live_process_directory() {
         let temp = tempdir().unwrap();
