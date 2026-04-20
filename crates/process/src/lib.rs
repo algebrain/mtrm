@@ -227,24 +227,9 @@ impl ShellProcess {
     }
 
     fn terminate_process_group(&mut self) -> Result<(), ProcessError> {
-        let descendants = platform::descendant_pids(self.process_id as i32);
-
-        for pid in &descendants {
-            let _ = signal::kill(Pid::from_raw(*pid), Signal::SIGHUP);
-        }
-        self.signal_process_group(Signal::SIGHUP)?;
-        thread::sleep(Duration::from_millis(100));
-        for pid in descendants.into_iter().rev() {
-            let _ = signal::kill(Pid::from_raw(pid), Signal::SIGKILL);
-        }
-        let _ = self.signal_process_group(Signal::SIGKILL);
+        platform::terminate_process_tree(self.process_id, self.process_group_id)?;
         let _ = self.child.kill();
         Ok(())
-    }
-
-    fn signal_process_group(&self, signal_kind: Signal) -> Result<(), ProcessError> {
-        signal::kill(Pid::from_raw(-self.process_group_id), signal_kind)
-            .map_err(|error| ProcessError::Interrupt(error.to_string()))
     }
 
     fn restore_baseline_termios_if_needed(&self) -> Result<(), ProcessError> {
@@ -337,55 +322,14 @@ impl ShellProcess {
         &self,
         interrupted_process_group_id: i32,
     ) -> Result<(), ProcessError> {
-        for _ in 0..INTERRUPT_TERMIO_RECHECK_ATTEMPTS {
-            thread::sleep(INTERRUPT_TERMIO_RECHECK_DELAY);
-
-            let foreground_process_group_id =
-                self.master.process_group_leader().map(|pid| pid as i32);
-            let shell_is_foreground = foreground_process_group_id == Some(self.process_group_id);
-            let descendants = platform::descendant_pids(self.process_id as i32);
-
-            let lingering = platform::has_lingering_tty_processes_for_interrupted_group(
-                self.process_id,
-                self.process_group_id,
-                interrupted_process_group_id,
-                &descendants,
-            );
-
-            if !shell_is_foreground || !lingering {
-                continue;
-            }
-
-            signal::kill(Pid::from_raw(-interrupted_process_group_id), Signal::SIGHUP)
-                .map_err(|error| ProcessError::Interrupt(error.to_string()))?;
-            let _ = signal::kill(
-                Pid::from_raw(-interrupted_process_group_id),
-                Signal::SIGCONT,
-            );
-            thread::sleep(Duration::from_millis(50));
-
-            let descendants = platform::descendant_pids(self.process_id as i32);
-
-            let still_lingering = platform::has_lingering_tty_processes_for_interrupted_group(
-                self.process_id,
-                self.process_group_id,
-                interrupted_process_group_id,
-                &descendants,
-            );
-
-            if !still_lingering {
-                return Ok(());
-            }
-
-            signal::kill(
-                Pid::from_raw(-interrupted_process_group_id),
-                Signal::SIGTERM,
-            )
-            .map_err(|error| ProcessError::Interrupt(error.to_string()))?;
-            return Ok(());
-        }
-
-        Ok(())
+        platform::cleanup_lingering_tty_processes_after_interrupt(
+            &*self.master,
+            self.process_id,
+            self.process_group_id,
+            interrupted_process_group_id,
+            INTERRUPT_TERMIO_RECHECK_ATTEMPTS,
+            INTERRUPT_TERMIO_RECHECK_DELAY,
+        )
     }
 }
 

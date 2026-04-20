@@ -1,7 +1,12 @@
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 
+use nix::sys::signal::{self, Signal};
 use nix::sys::termios::{SetArg, Termios, tcsetattr};
+use nix::unistd::Pid;
+use portable_pty::MasterPty;
 
 use crate::ProcessError;
 
@@ -70,6 +75,73 @@ pub(crate) fn apply_termios_via_shell_tty(
     let tty_path = shell_tty_path(process_id);
     let tty = OpenOptions::new().read(true).write(true).open(tty_path)?;
     tcsetattr(&tty, SetArg::TCSANOW, termios).map_err(std::io::Error::other)
+}
+
+pub(crate) fn cleanup_lingering_tty_processes_after_interrupt(
+    master: &(dyn MasterPty + Send),
+    process_id: u32,
+    shell_process_group_id: i32,
+    interrupted_process_group_id: i32,
+    attempts: usize,
+    recheck_delay: Duration,
+) -> Result<(), ProcessError> {
+    for _ in 0..attempts {
+        thread::sleep(recheck_delay);
+
+        let foreground_process_group_id = master.process_group_leader().map(|pid| pid as i32);
+        let shell_is_foreground = foreground_process_group_id == Some(shell_process_group_id);
+        let descendants = descendant_pids(process_id as i32);
+
+        let lingering = has_lingering_tty_processes_for_interrupted_group(
+            process_id,
+            shell_process_group_id,
+            interrupted_process_group_id,
+            &descendants,
+        );
+
+        if !shell_is_foreground || !lingering {
+            continue;
+        }
+
+        signal::kill(Pid::from_raw(-interrupted_process_group_id), Signal::SIGHUP)
+            .map_err(|error| ProcessError::Interrupt(error.to_string()))?;
+        let _ = signal::kill(Pid::from_raw(-interrupted_process_group_id), Signal::SIGCONT);
+        thread::sleep(Duration::from_millis(50));
+
+        let descendants = descendant_pids(process_id as i32);
+        let still_lingering = has_lingering_tty_processes_for_interrupted_group(
+            process_id,
+            shell_process_group_id,
+            interrupted_process_group_id,
+            &descendants,
+        );
+
+        if !still_lingering {
+            return Ok(());
+        }
+
+        signal::kill(Pid::from_raw(-interrupted_process_group_id), Signal::SIGTERM)
+            .map_err(|error| ProcessError::Interrupt(error.to_string()))?;
+        return Ok(());
+    }
+
+    Ok(())
+}
+
+pub(crate) fn terminate_process_tree(process_id: u32, process_group_id: i32) -> Result<(), ProcessError> {
+    let descendants = descendant_pids(process_id as i32);
+
+    for pid in &descendants {
+        let _ = signal::kill(Pid::from_raw(*pid), Signal::SIGHUP);
+    }
+    signal::kill(Pid::from_raw(-process_group_id), Signal::SIGHUP)
+        .map_err(|error| ProcessError::Interrupt(error.to_string()))?;
+    thread::sleep(Duration::from_millis(100));
+    for pid in descendants.into_iter().rev() {
+        let _ = signal::kill(Pid::from_raw(pid), Signal::SIGKILL);
+    }
+    let _ = signal::kill(Pid::from_raw(-process_group_id), Signal::SIGKILL);
+    Ok(())
 }
 
 fn tty_attached_processes(process_id: u32) -> Vec<ProcSummary> {
