@@ -3158,7 +3158,6 @@ mod tests {
             .write_to_active_pane(format!("cd '{}'\n", pane_dir.display()).as_bytes())
             .unwrap();
 
-        #[cfg(target_os = "linux")]
         {
             let changed = wait_until(Duration::from_secs(2), || {
                 app.tabs
@@ -3184,7 +3183,6 @@ mod tests {
 
         assert_eq!(placements.len(), 2);
 
-        #[cfg(target_os = "linux")]
         assert_eq!(restored.tabs.active_pane_cwd().unwrap(), pane_dir);
     }
 }

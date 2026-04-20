@@ -23,6 +23,8 @@ use thiserror::Error;
 
 #[cfg(target_os = "linux")]
 mod platform_linux;
+#[cfg(target_os = "macos")]
+mod platform_macos;
 
 const MAX_READ_BUFFER_BYTES: usize = 65_536;
 const TERM_PROGRAM_NAME: &str = "mtrm";
@@ -193,6 +195,11 @@ impl ShellProcess {
         #[cfg(target_os = "linux")]
         {
             platform_linux::resolve_current_dir_via_procfs(self.process_id)
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            platform_macos::resolve_current_dir_via_libproc(self.process_id)
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -693,7 +700,6 @@ mod tests {
         assert!(output.contains("__INTERRUPTED__"));
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn current_dir_tracks_shell_working_directory() {
         let temp = tempdir().unwrap();
