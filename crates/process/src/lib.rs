@@ -674,6 +674,33 @@ mod tests {
         assert!(stopped, "process still alive after terminate");
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn terminate_stops_background_work_started_by_shell_on_macos() {
+        let temp = tempdir().unwrap();
+        let marker = temp.path().join("terminated-marker.txt");
+        let mut process = ShellProcess::spawn(shell_config(temp.path().to_path_buf())).unwrap();
+
+        process
+            .write_all(
+                format!(
+                    "sh -c 'sleep 1; touch \"{}\"' >/dev/null 2>&1 &\n",
+                    marker.display()
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        thread::sleep(Duration::from_millis(150));
+
+        process.terminate().unwrap();
+        thread::sleep(Duration::from_secs(2));
+
+        assert!(
+            !marker.exists(),
+            "background child survived terminate() and kept running"
+        );
+    }
+
     #[test]
     fn dropping_shell_process_stops_background_work() {
         let temp = tempdir().unwrap();
@@ -998,6 +1025,38 @@ mod tests {
         assert!(
             !output.contains("^[[D"),
             "shell echoed raw left-arrow after orphan cleanup scenario; got {output:?}"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn send_interrupt_recovers_shell_after_orphan_like_same_tty_job_on_macos() {
+        let temp = tempdir().unwrap();
+        let config = interactive_bash_config(temp.path().to_path_buf());
+        let mut process = ShellProcess::spawn(config).unwrap();
+        let _ = wait_for_prompt(&mut process).unwrap();
+        process
+            .write_all(
+                b"sh -c 'trap \"exit 130\" INT; (sh -c \"trap \\\"\\\" HUP INT TERM; while :; do sleep 1; done\") & while :; do sleep 1; done'\n",
+            )
+            .unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        process.send_interrupt().unwrap();
+        let _ = wait_for_prompt(&mut process).unwrap();
+
+        let _ = process.try_read().unwrap();
+        process.write_all(b"echo ac\x1b[D\x1b[Db\n").unwrap();
+        let output =
+            read_until_contains(&mut process, "__MTRM_PROMPT__", Duration::from_secs(3)).unwrap();
+
+        assert!(
+            output.contains("bac"),
+            "expected shell editing to remain healthy after interrupted same-tty job; got {output:?}"
+        );
+        assert!(
+            !output.contains("^[[D"),
+            "shell echoed raw left-arrow after interrupted same-tty job; got {output:?}"
         );
     }
 
