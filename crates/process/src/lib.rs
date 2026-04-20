@@ -202,7 +202,7 @@ impl ShellProcess {
             platform_macos::resolve_current_dir_via_libproc(self.process_id)
         }
 
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
             Err(unsupported_current_dir_error())
         }
@@ -364,7 +364,7 @@ impl ShellProcess {
             let descendants = platform_linux::descendant_pids(self.process_id as i32);
 
             #[cfg(not(target_os = "linux"))]
-            let descendants: Vec<i32> = Vec::new();
+            let _descendants: Vec<i32> = Vec::new();
 
             #[cfg(target_os = "linux")]
             let lingering = platform_linux::lingering_tty_processes_for_interrupted_group(
@@ -393,7 +393,7 @@ impl ShellProcess {
             let descendants = platform_linux::descendant_pids(self.process_id as i32);
 
             #[cfg(not(target_os = "linux"))]
-            let descendants: Vec<i32> = Vec::new();
+            let _descendants: Vec<i32> = Vec::new();
 
             #[cfg(target_os = "linux")]
             let still_lingering = platform_linux::lingering_tty_processes_for_interrupted_group(
