@@ -1,0 +1,35 @@
+name: macOS Dev Checks
+
+on:
+  push:
+    branches: [ "mac-port" ]
+  pull_request:
+    branches: [ "mac-port" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  macos-check-and-test:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: macos-latest-v1
+
+    - name: Cargo check
+      run: cargo check --workspace
+
+    - name: Cargo test
+      run: cargo test --workspace --verbose

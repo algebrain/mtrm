@@ -335,13 +335,12 @@ impl TabManager {
 
     pub fn active_pane_cwd(&self) -> Result<PathBuf, TabsError> {
         let pane_id = self.active_pane_id();
-        self.active_tab()
+        let pane = self
+            .active_tab()
             .panes
             .get(&pane_id)
-            .ok_or(TabsError::PaneNotFound(pane_id))?
-            .process
-            .current_dir()
-            .map_err(process_error)
+            .ok_or(TabsError::PaneNotFound(pane_id))?;
+        Ok(live_or_last_known_cwd(pane))
     }
 
     pub fn resize_active_tab(&mut self, area: Rect) -> Result<(), TabsError> {
@@ -431,7 +430,7 @@ impl TabManager {
                     .panes
                     .get(&pane_id)
                     .ok_or(TabsError::PaneNotFound(pane_id))?;
-                let cwd = process.process.current_dir().map_err(process_error)?;
+                let cwd = live_or_last_known_cwd(process);
                 panes.push(PaneSnapshot {
                     id: pane_id,
                     cwd,
@@ -555,6 +554,7 @@ impl TabManager {
 struct PaneEntry {
     process: ShellProcess,
     screen: TerminalScreen,
+    last_known_cwd: PathBuf,
     title: String,
 }
 
@@ -562,7 +562,7 @@ fn spawn_shell(shell: &ShellProcessConfig, cwd: PathBuf, title: String) -> Resul
     let config = ShellProcessConfig {
         program: shell.program.clone(),
         args: shell.args.clone(),
-        initial_cwd: cwd,
+        initial_cwd: cwd.clone(),
         debug_log_path: shell.debug_log_path.clone(),
     };
     let process = ShellProcess::spawn(config).map_err(process_error)?;
@@ -574,6 +574,7 @@ fn spawn_shell(shell: &ShellProcessConfig, cwd: PathBuf, title: String) -> Resul
     Ok(PaneEntry {
         process,
         screen,
+        last_known_cwd: cwd,
         title,
     })
 }
@@ -584,6 +585,12 @@ fn default_pane_title_for(pane_id: PaneId) -> String {
 
 fn process_error(error: impl ToString) -> TabsError {
     TabsError::Process(error.to_string())
+}
+
+fn live_or_last_known_cwd(pane: &PaneEntry) -> PathBuf {
+    pane.process
+        .current_dir()
+        .unwrap_or_else(|_| pane.last_known_cwd.clone())
 }
 
 fn seed_allocator(ids: &mut IdAllocator, next_tab: u64, next_pane: u64) {
