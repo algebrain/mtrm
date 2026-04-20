@@ -627,6 +627,7 @@ mod tests {
         read_until_contains(process, "__MTRM_PROMPT__", Duration::from_secs(3))
     }
 
+    #[cfg(target_os = "linux")]
     fn proc_signal_masks(pid: u32) -> (u64, u64) {
         let status = fs::read_to_string(format!("/proc/{pid}/status")).expect("read /proc status");
         let mut ignored = None;
@@ -692,6 +693,7 @@ mod tests {
         assert!(output.contains("__INTERRUPTED__"));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn current_dir_tracks_shell_working_directory() {
         let temp = tempdir().unwrap();
@@ -1104,6 +1106,7 @@ mod tests {
         assert_eq!(baseline_after_prompt, current);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn interactive_bash_does_not_ignore_interrupt_signal_after_spawn() {
         let temp = tempdir().unwrap();
