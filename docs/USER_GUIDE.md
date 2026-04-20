@@ -15,11 +15,13 @@ The binary also supports a few direct flags:
 ```bash
 mtrm --help
 mtrm --version
+mtrm --no-clipboard
 mtrm --debug-log /tmp/mtrm-pty.log
 ```
 
 - `--help` prints a short help message and exits;
 - `--version` prints the version string and exits;
+- `--no-clipboard` disables built-in system clipboard integration even if it is available;
 - `--debug-log PATH` writes raw PTY chunks into the given file, which is useful when diagnosing terminal emulation issues and fullscreen TUI behavior.
 
 ## What the Program Does
@@ -46,6 +48,8 @@ After restart, the program restores:
 
 It does not restore old live processes. On startup it creates fresh shells.
 
+If the system clipboard is unavailable, `mtrm` still starts and keeps the rest of the interface working.
+
 ## Keybindings
 
 - `Ctrl+C` copies the selected text from the active pane into the system clipboard.
@@ -71,6 +75,7 @@ It does not restore old live processes. On startup it creates fresh shells.
 - `Shift+Down` scrolls the active pane history down by one line.
 - `Shift+PageUp` scrolls the active pane history up by one screen.
 - `Shift+PageDown` scrolls the active pane history down by one screen.
+- `Home` sends Home into the active shell.
 - `End` returns to the live bottom of the active pane.
 
 By default, letter-based shortcuts like `Alt+T`, `Alt+Q`, `Alt+W`, `Alt+X`, `Alt+Shift+R`, `Alt+Shift+E`, and `Alt+Shift+Q` work for Latin letters, which already covers English, Spanish, and Portuguese layouts, and additionally includes Russian, French AZERTY, and Greek layouts.
@@ -98,6 +103,19 @@ In `mtrm`, `Ctrl+C` does not interrupt the process.
 It is used to copy the current selection. If nothing is selected, nothing is copied into the clipboard. To interrupt a process, use:
 
 - `Alt+X`
+
+## Clipboard Availability
+
+Built-in copy and paste depend on a working local system clipboard backend.
+
+If that backend is unavailable:
+
+- `mtrm` still starts normally;
+- the rest of the interface continues to work;
+- `Ctrl+C` and `Ctrl+V` do not terminate the program;
+- `mtrm` shows a short notice instead.
+
+This is especially relevant in remote or headless sessions.
 
 ## State Persistence
 

@@ -9,6 +9,8 @@ pub enum ClipboardError {
     Read(String),
     #[error("failed to write to system clipboard: {0}")]
     Write(String),
+    #[error("system clipboard is unavailable")]
+    Unavailable,
 }
 
 pub trait ClipboardBackend: Send {
@@ -39,6 +41,19 @@ impl ClipboardBackend for SystemClipboard {
         self.clipboard
             .set_text(text.to_owned())
             .map_err(|error| ClipboardError::Write(error.to_string()))
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct UnavailableClipboard;
+
+impl ClipboardBackend for UnavailableClipboard {
+    fn get_text(&mut self) -> Result<String, ClipboardError> {
+        Err(ClipboardError::Unavailable)
+    }
+
+    fn set_text(&mut self, _text: &str) -> Result<(), ClipboardError> {
+        Err(ClipboardError::Unavailable)
     }
 }
 
@@ -111,6 +126,20 @@ mod tests {
         clipboard.set_text("").unwrap();
 
         assert_eq!(clipboard.get_text().unwrap(), "");
+    }
+
+    #[test]
+    fn unavailable_clipboard_reports_unavailable_for_read_and_write() {
+        let mut clipboard = UnavailableClipboard;
+
+        assert!(matches!(
+            clipboard.get_text(),
+            Err(ClipboardError::Unavailable)
+        ));
+        assert!(matches!(
+            clipboard.set_text("hello"),
+            Err(ClipboardError::Unavailable)
+        ));
     }
 
     #[test]

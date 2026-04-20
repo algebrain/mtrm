@@ -42,7 +42,13 @@ pub struct FrameView {
     pub tabs: Vec<TabView>,
     pub panes: Vec<PaneView>,
     pub focused: bool,
+    pub clipboard_notice: Option<ClipboardNoticeView>,
     pub modal: Option<ModalView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipboardNoticeView {
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +69,14 @@ pub fn render_frame<B: Backend>(
         render_tabs(frame, frame_view, full);
         for pane in &frame_view.panes {
             render_pane(frame, pane, full, frame_view.focused);
+        }
+        if let Some(notice) = &frame_view.clipboard_notice {
+            render_clipboard_notice(frame, frame_view, notice, full, TuiRect {
+                x: full.x,
+                y: full.y,
+                width: full.width,
+                height: TAB_BAR_HEIGHT.min(full.height),
+            });
         }
         if let Some(modal) = &frame_view.modal {
             render_modal(frame, modal, full);
@@ -102,6 +116,74 @@ fn render_tabs(frame: &mut ratatui::Frame<'_>, frame_view: &FrameView, area: Tui
         height: TAB_BAR_HEIGHT.min(area.height),
     };
     frame.render_widget(tabs, tab_area);
+
+}
+
+fn render_clipboard_notice(
+    frame: &mut ratatui::Frame<'_>,
+    frame_view: &FrameView,
+    notice: &ClipboardNoticeView,
+    full_area: TuiRect,
+    tab_area: TuiRect,
+) {
+    let notice_width = notice.text.chars().count().min(u16::MAX as usize) as u16;
+    let tabs_width = tab_bar_titles_width(frame_view);
+    let has_space_in_tab_bar = notice_width > 0
+        && notice_width < tab_area.width
+        && tabs_width.saturating_add(1).saturating_add(notice_width) <= tab_area.width;
+
+    if has_space_in_tab_bar {
+        let notice_area = TuiRect {
+            x: tab_area.x + tab_area.width - notice_width,
+            y: tab_area.y,
+            width: notice_width,
+            height: tab_area.height,
+        };
+        Paragraph::new(notice.text.as_str())
+            .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+            .render(notice_area, frame.buffer_mut());
+        return;
+    }
+
+    let overlay_x = if full_area.width > 2 {
+        full_area.x + 1
+    } else {
+        full_area.x
+    };
+    let overlay_y = if full_area.height > 1 {
+        full_area.y + 1
+    } else {
+        full_area.y
+    };
+    let overlay_width = notice_width.min(full_area.width.saturating_sub(overlay_x - full_area.x));
+    if overlay_width == 0 {
+        return;
+    }
+    let overlay_area = TuiRect {
+        x: overlay_x,
+        y: overlay_y,
+        width: overlay_width,
+        height: 1,
+    };
+    Clear.render(overlay_area, frame.buffer_mut());
+    Paragraph::new(notice.text.as_str())
+        .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+        .render(overlay_area, frame.buffer_mut());
+}
+
+fn tab_bar_titles_width(frame_view: &FrameView) -> u16 {
+    if frame_view.tabs.is_empty() {
+        return 4;
+    }
+
+    let divider_width = TAB_DIVIDER.chars().count().min(u16::MAX as usize) as u16;
+    let titles_width: u16 = frame_view
+        .tabs
+        .iter()
+        .map(|tab| tab.title.chars().count().min(u16::MAX as usize) as u16)
+        .sum();
+    let divider_total = divider_width.saturating_mul(frame_view.tabs.len().saturating_sub(1) as u16);
+    titles_width.saturating_add(divider_total)
 }
 
 fn render_pane(
@@ -534,6 +616,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             30,
@@ -564,6 +647,7 @@ mod tests {
                 ],
                 panes: vec![],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -575,6 +659,67 @@ mod tests {
             .collect();
         assert!(line.contains("one"));
         assert!(line.contains("two"));
+    }
+
+    #[test]
+    fn renders_clipboard_notice_at_right_edge_of_tab_bar_when_there_is_space() {
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "main".to_owned(),
+                    active: true,
+                }],
+                panes: vec![],
+                focused: true,
+                clipboard_notice: Some(ClipboardNoticeView {
+                    text: "Буфер обмена недоступен".to_owned(),
+                }),
+                modal: None,
+            },
+            60,
+            4,
+        );
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(59, 0)].symbol(), "н");
+    }
+
+    #[test]
+    fn renders_clipboard_notice_as_overlay_when_tab_bar_is_too_narrow() {
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "very-wide-active-tab".to_owned(),
+                    active: true,
+                }],
+                panes: vec![PaneView {
+                    id: PaneId::new(1),
+                    title: "pane".to_owned(),
+                    area: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 20,
+                        height: 5,
+                    },
+                    active: true,
+                    lines: vec![],
+                    selection: None,
+                    cursor: None,
+                }],
+                focused: true,
+                clipboard_notice: Some(ClipboardNoticeView {
+                    text: "Буфер обмена недоступен".to_owned(),
+                }),
+                modal: None,
+            },
+            20,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(1, 1)].symbol(), "Б");
     }
 
     #[test]
@@ -595,6 +740,7 @@ mod tests {
                 ],
                 panes: vec![],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -627,6 +773,7 @@ mod tests {
                 ],
                 panes: vec![],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -659,6 +806,7 @@ mod tests {
                 ],
                 panes: vec![],
                 focused: false,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -713,6 +861,7 @@ mod tests {
                     },
                 ],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             25,
@@ -748,6 +897,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: false,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -802,6 +952,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -855,6 +1006,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             30,
@@ -908,6 +1060,7 @@ mod tests {
                     cursor: Some((0, 1)),
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -973,6 +1126,7 @@ mod tests {
                     cursor: Some((0, 1)),
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -1025,6 +1179,7 @@ mod tests {
                     cursor: Some((0, 2)),
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -1078,6 +1233,7 @@ mod tests {
                     cursor: Some((0, 1)),
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -1103,6 +1259,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&screen)],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             30,
@@ -1132,6 +1289,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&screen)],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             30,
@@ -1160,6 +1318,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&first)],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
         )
@@ -1177,6 +1336,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&second)],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
         )
@@ -1234,6 +1394,7 @@ mod tests {
                     ),
                 ],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
         )
@@ -1276,6 +1437,7 @@ mod tests {
                     ),
                 ],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
         )
@@ -1338,6 +1500,7 @@ mod tests {
                     ),
                 ],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
         )
@@ -1381,6 +1544,7 @@ mod tests {
                     ),
                 ],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
         )
@@ -1416,6 +1580,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&first)],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
         )
@@ -1433,6 +1598,7 @@ mod tests {
                 }],
                 panes: vec![pane_from_screen(&second)],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
         )
@@ -1514,6 +1680,7 @@ mod tests {
                     cursor: Some((0, 1)),
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -1568,6 +1735,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -1609,6 +1777,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -1652,6 +1821,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -1693,6 +1863,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -1737,6 +1908,7 @@ mod tests {
                     cursor: None,
                 }],
                 focused: true,
+                clipboard_notice: None,
                 modal: None,
             },
             20,
@@ -1766,6 +1938,7 @@ mod tests {
                 }],
                 panes: vec![],
                 focused: true,
+                clipboard_notice: None,
                 modal: Some(ModalView {
                     title: "Rename Tab".to_owned(),
                     input: "build".to_owned(),

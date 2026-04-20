@@ -43,8 +43,8 @@ Current expectations:
 
 - It is meant to run locally on a Linux desktop session
 - It is not designed as a remote terminal or server session manager
-- It currently requires a working local system clipboard backend to start
-- Clipboard support depends on the local desktop environment and may fail in headless or remote sessions
+- It can start even when the local system clipboard backend is unavailable
+- Clipboard support depends on the local desktop environment; in headless or remote sessions built-in copy and paste may be unavailable
 - State restore brings back layout and working directories, not old running processes
 - Windows and macOS builds are not supported targets yet
 
@@ -76,6 +76,12 @@ cargo run -p mtrm
 
 This starts `mtrm` with your current `$SHELL` in interactive mode.
 
+To simulate a session without system clipboard integration:
+
+```bash
+cargo run -p mtrm -- --no-clipboard
+```
+
 ### Install into `~/.local/bin`
 
 ```bash
@@ -95,11 +101,13 @@ mtrm
 ```bash
 mtrm --help
 mtrm --version
+mtrm --no-clipboard
 mtrm --debug-log /tmp/mtrm-pty.log
 ```
 
 - `--help` / `-h` prints help and exits
 - `--version` / `-v` prints version and exits
+- `--no-clipboard` disables system clipboard integration even if it is available
 - `--debug-log PATH` appends raw PTY output chunks to `PATH` for terminal-debugging sessions
 
 ## Default Keybindings
@@ -126,6 +134,8 @@ mtrm --debug-log /tmp/mtrm-pty.log
 - `End`: return to the live bottom of the active pane
 
 Letter-based shortcuts are configured through `~/.mtrm/keymap.toml`.
+
+If the system clipboard is unavailable, `Ctrl+C` and `Ctrl+V` stay assigned to copy and paste, but `mtrm` shows a short notice instead of failing to start.
 
 The bundled default keymap already covers:
 

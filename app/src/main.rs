@@ -13,20 +13,25 @@ use crossterm::event::{
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use mtrm_clipboard::{ClipboardBackend, ClipboardError, SystemClipboard};
+use mtrm_clipboard::{ClipboardBackend, ClipboardError, SystemClipboard, UnavailableClipboard};
 use mtrm_core::{AppCommand, ClipboardCommand, LayoutCommand, TabCommand};
 use mtrm_input::{InputAction, map_key_event_with_keymap};
 use mtrm_keymap::{Keymap, load_keymap};
 use mtrm_process::ShellProcessConfig;
 use mtrm_state::{load_state, save_state};
 use mtrm_tabs::TabManager;
-use mtrm_ui::{FrameView, ModalView, PaneSelectionView, PaneView, TAB_DIVIDER, TabView, render_frame};
+use mtrm_ui::{
+    ClipboardNoticeView, FrameView, ModalView, PaneSelectionView, PaneView, TAB_DIVIDER, TabView,
+    render_frame,
+};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::backend::CrosstermBackend;
 use thiserror::Error;
 
 const ALT_PREFIX_TIMEOUT: Duration = Duration::from_millis(80);
+const CLIPBOARD_NOTICE_TEXT: &str = "Буфер обмена недоступен";
+const CLIPBOARD_NOTICE_TTL: Duration = Duration::from_secs(3);
 
 pub struct App {
     shell: ShellProcessConfig,
@@ -38,6 +43,7 @@ pub struct App {
     window_focused: bool,
     pending_alt_prefix_started_at: Option<Instant>,
     rename: Option<RenameState>,
+    clipboard_notice: Option<UiNotice>,
     last_content_area: mtrm_layout::Rect,
 }
 
@@ -52,6 +58,7 @@ enum CliAction {
 struct CliOptions {
     action: CliAction,
     debug_log_path: Option<PathBuf>,
+    disable_clipboard: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +99,12 @@ struct LayoutCommandResult {
     ui_dirty: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UiNotice {
+    text: String,
+    shown_at: Instant,
+}
+
 const DEFAULT_CONTENT_AREA: mtrm_layout::Rect = mtrm_layout::Rect {
     x: 0,
     y: 0,
@@ -116,6 +129,7 @@ impl App {
             window_focused: true,
             pending_alt_prefix_started_at: None,
             rename: None,
+            clipboard_notice: None,
             last_content_area: DEFAULT_CONTENT_AREA,
         })
     }
@@ -135,6 +149,7 @@ impl App {
                     window_focused: true,
                     pending_alt_prefix_started_at: None,
                     rename: None,
+                    clipboard_notice: None,
                     last_content_area: DEFAULT_CONTENT_AREA,
                 })
             }
@@ -382,12 +397,25 @@ impl App {
                             (selection.focus.row, selection.focus.col),
                         )
                         .map_err(tabs_error)?;
-                    clipboard.set_text(&text).map_err(clipboard_error)?;
+                    match clipboard.set_text(&text) {
+                        Ok(()) => {}
+                        Err(ClipboardError::Unavailable) => {
+                            self.show_clipboard_unavailable_notice();
+                        }
+                        Err(error) => return Err(clipboard_error(error)),
+                    }
                 }
             }
             AppCommand::Clipboard(ClipboardCommand::PasteFromSystem) => {
                 self.clear_selection();
-                let text = clipboard.get_text().map_err(clipboard_error)?;
+                let text = match clipboard.get_text() {
+                    Ok(text) => text,
+                    Err(ClipboardError::Unavailable) => {
+                        self.show_clipboard_unavailable_notice();
+                        return Ok(());
+                    }
+                    Err(error) => return Err(clipboard_error(error)),
+                };
                 self.tabs
                     .write_to_active_pane(text.as_bytes())
                     .map_err(tabs_error)?;
@@ -425,6 +453,23 @@ impl App {
         }
 
         Ok(())
+    }
+
+    fn show_clipboard_unavailable_notice(&mut self) {
+        let now = Instant::now();
+        let should_refresh = self
+            .clipboard_notice
+            .as_ref()
+            .map(|notice| now.duration_since(notice.shown_at) >= CLIPBOARD_NOTICE_TTL)
+            .unwrap_or(true);
+
+        if should_refresh {
+            self.clipboard_notice = Some(UiNotice {
+                text: CLIPBOARD_NOTICE_TEXT.to_owned(),
+                shown_at: now,
+            });
+        }
+        self.ui_dirty = true;
     }
 
     fn handle_layout_command(&mut self, command: LayoutCommand) -> Result<LayoutCommandResult, AppError> {
@@ -715,12 +760,20 @@ impl App {
             cursor: rename.cursor,
             hint: "Enter apply, Esc cancel".to_owned(),
         });
+        let clipboard_notice = self
+            .clipboard_notice
+            .as_ref()
+            .filter(|notice| notice.shown_at.elapsed() < CLIPBOARD_NOTICE_TTL)
+            .map(|notice| ClipboardNoticeView {
+                text: notice.text.clone(),
+            });
 
         let _ = active_tab_snapshot;
         Ok(FrameView {
             tabs,
             panes,
             focused: self.window_focused,
+            clipboard_notice,
             modal,
         })
     }
@@ -771,11 +824,11 @@ fn main() -> Result<(), AppError> {
         .map_err(terminal_io_error)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).map_err(terminal_io_error)?;
-    let mut clipboard = SystemClipboard::new().map_err(clipboard_error)?;
+    let mut clipboard = build_clipboard(cli.disable_clipboard);
 
     let result = (|| {
         let mut app = App::restore_or_new(shell)?;
-        app.run(&mut terminal, &mut clipboard)
+        app.run(&mut terminal, &mut *clipboard)
     })();
 
     let _ = disable_raw_mode();
@@ -859,10 +912,12 @@ where
 
     let mut action = CliAction::Run;
     let mut debug_log_path = None;
+    let mut disable_clipboard = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => action = CliAction::PrintHelp,
             "-v" | "--version" => action = CliAction::PrintVersion,
+            "--no-clipboard" => disable_clipboard = true,
             "--debug-log" => {
                 let path = args
                     .next()
@@ -878,6 +933,7 @@ where
     Ok(CliOptions {
         action,
         debug_log_path,
+        disable_clipboard,
     })
 }
 
@@ -893,11 +949,13 @@ Usage:
   mtrm
   mtrm -h | --help
   mtrm -v | --version
+  mtrm [--no-clipboard]
   mtrm [--debug-log PATH]
 
 Options:
   -h, --help       Print this help and exit
   -v, --version    Print version and exit
+  --no-clipboard   Disable system clipboard integration
   --debug-log PATH Append raw PTY output chunks to PATH for debugging
 
 Keybindings:
@@ -964,6 +1022,17 @@ fn state_error(error: impl ToString) -> AppError {
 
 fn clipboard_error(error: ClipboardError) -> AppError {
     AppError::Clipboard(error.to_string())
+}
+
+fn build_clipboard(disable_clipboard: bool) -> Box<dyn ClipboardBackend> {
+    if disable_clipboard {
+        return Box::new(UnavailableClipboard);
+    }
+
+    match SystemClipboard::new() {
+        Ok(clipboard) => Box::new(clipboard),
+        Err(_) => Box::new(UnavailableClipboard),
+    }
 }
 
 fn keymap_error(error: impl ToString) -> AppError {
@@ -1170,7 +1239,7 @@ mod tests {
     use crossterm::event::{
         KeyCode, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEventKind,
     };
-    use mtrm_clipboard::MemoryClipboard;
+    use mtrm_clipboard::{MemoryClipboard, UnavailableClipboard};
     use mtrm_core::{FocusMoveDirection, LayoutCommand};
     use ratatui::backend::TestBackend;
     use serial_test::serial;
@@ -1212,6 +1281,7 @@ mod tests {
         let options = parse_cli_args(args).unwrap();
         assert_eq!(options.action, CliAction::Run);
         assert_eq!(options.debug_log_path, None);
+        assert!(!options.disable_clipboard);
     }
 
     #[test]
@@ -1269,6 +1339,34 @@ mod tests {
             options.debug_log_path,
             Some(PathBuf::from("/tmp/mtrm-pty.log"))
         );
+        assert!(!options.disable_clipboard);
+    }
+
+    #[test]
+    fn parse_cli_args_supports_no_clipboard_flag() {
+        let args = vec!["mtrm".to_owned(), "--no-clipboard".to_owned()];
+        let options = parse_cli_args(args).unwrap();
+
+        assert_eq!(options.action, CliAction::Run);
+        assert!(options.disable_clipboard);
+    }
+
+    #[test]
+    fn parse_cli_args_supports_no_clipboard_with_debug_log_path() {
+        let args = vec![
+            "mtrm".to_owned(),
+            "--debug-log".to_owned(),
+            "/tmp/mtrm-pty.log".to_owned(),
+            "--no-clipboard".to_owned(),
+        ];
+        let options = parse_cli_args(args).unwrap();
+
+        assert_eq!(options.action, CliAction::Run);
+        assert_eq!(
+            options.debug_log_path,
+            Some(PathBuf::from("/tmp/mtrm-pty.log"))
+        );
+        assert!(options.disable_clipboard);
     }
 
     #[test]
@@ -1314,6 +1412,7 @@ mod tests {
         let help = help_text();
 
         assert!(help.contains("Keybindings:"));
+        assert!(help.contains("--no-clipboard"));
         assert!(help.contains("Ctrl+C           Copy selection"));
         assert!(help.contains("Alt+T            New tab"));
         assert!(help.contains("Alt+Shift+R      Rename current tab"));
@@ -1758,6 +1857,7 @@ mod tests {
             window_focused: true,
             pending_alt_prefix_started_at: None,
             rename: None,
+            clipboard_notice: None,
             last_content_area: DEFAULT_CONTENT_AREA,
         };
 
@@ -1802,6 +1902,27 @@ mod tests {
             })
         });
         assert!(ok);
+    }
+
+    #[test]
+    #[serial]
+    fn paste_with_unavailable_clipboard_sets_notice_and_does_not_fail() {
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir(&home).unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = UnavailableClipboard;
+
+        with_test_home(&home, || {
+            app.handle_key_event(
+                key_event(KeyCode::Char('v'), KeyModifiers::CONTROL),
+                &mut clipboard,
+            )
+        })
+        .unwrap();
+
+        let notice = app.clipboard_notice.as_ref().expect("clipboard notice");
+        assert_eq!(notice.text, "Буфер обмена недоступен");
     }
 
     #[test]
