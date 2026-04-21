@@ -12,6 +12,14 @@ fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     }
 }
 
+fn map_linux(event: KeyEvent) -> InputAction {
+    map_key_event_with_profile(event, &Keymap::default(), PlatformKeyProfile::Linux)
+}
+
+fn map_linux_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputAction {
+    map_key_event_with_profile(event, keymap, PlatformKeyProfile::Linux)
+}
+
 #[test]
 fn maps_ctrl_c_to_copy_selection() {
     assert_eq!(
@@ -31,7 +39,7 @@ fn maps_ctrl_v_to_paste_from_system() {
 #[test]
 fn maps_alt_x_to_interrupt() {
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('x'), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('x'), KeyModifiers::ALT)),
         InputAction::Command(AppCommand::SendInterrupt)
     );
 }
@@ -50,25 +58,25 @@ fn ctrl_shift_c_is_not_reserved_for_interrupt() {
 #[test]
 fn maps_alt_arrows_to_focus_commands() {
     assert_eq!(
-        map_key_event(key_event(KeyCode::Left, KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Left, KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
             FocusMoveDirection::Left
         )))
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Right, KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Right, KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
             FocusMoveDirection::Right
         )))
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Up, KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Up, KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
             FocusMoveDirection::Up
         )))
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Down, KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Down, KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
             FocusMoveDirection::Down
         )))
@@ -102,7 +110,7 @@ fn maps_shift_arrows_and_page_keys_to_scrollback_commands() {
 #[test]
 fn maps_alt_shift_arrows_to_resize_commands() {
     assert_eq!(
-        map_key_event(key_event(
+        map_linux(key_event(
             KeyCode::Left,
             KeyModifiers::ALT | KeyModifiers::SHIFT
         )),
@@ -111,7 +119,7 @@ fn maps_alt_shift_arrows_to_resize_commands() {
         )))
     );
     assert_eq!(
-        map_key_event(key_event(
+        map_linux(key_event(
             KeyCode::Right,
             KeyModifiers::ALT | KeyModifiers::SHIFT
         )),
@@ -120,7 +128,7 @@ fn maps_alt_shift_arrows_to_resize_commands() {
         )))
     );
     assert_eq!(
-        map_key_event(key_event(
+        map_linux(key_event(
             KeyCode::Up,
             KeyModifiers::ALT | KeyModifiers::SHIFT
         )),
@@ -129,7 +137,7 @@ fn maps_alt_shift_arrows_to_resize_commands() {
         )))
     );
     assert_eq!(
-        map_key_event(key_event(
+        map_linux(key_event(
             KeyCode::Down,
             KeyModifiers::ALT | KeyModifiers::SHIFT
         )),
@@ -154,19 +162,19 @@ fn maps_shift_printable_characters_to_utf8_bytes() {
 #[test]
 fn maps_alt_split_and_close_commands() {
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('-'), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('-'), KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Layout(LayoutCommand::SplitFocused(
             mtrm_core::SplitDirection::Vertical
         )))
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('='), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('='), KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Layout(LayoutCommand::SplitFocused(
             mtrm_core::SplitDirection::Horizontal
         )))
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('q'), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('q'), KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Layout(LayoutCommand::CloseFocusedPane))
     );
 }
@@ -174,19 +182,19 @@ fn maps_alt_split_and_close_commands() {
 #[test]
 fn maps_alt_tab_commands() {
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('t'), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('t'), KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::NewTab))
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char(','), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char(','), KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::PreviousTab))
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('.'), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('.'), KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::NextTab))
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('w'), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('w'), KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::CloseCurrentTab))
     );
 }
@@ -194,11 +202,11 @@ fn maps_alt_tab_commands() {
 #[test]
 fn maps_alt_printable_characters_to_meta_prefixed_bytes_when_not_commands() {
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('b'), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('b'), KeyModifiers::ALT)),
         InputAction::PtyBytes(vec![0x1b, b'b'])
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('Б'), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('Б'), KeyModifiers::ALT)),
         InputAction::PtyBytes({
             let mut bytes = vec![0x1b];
             bytes.extend_from_slice("Б".as_bytes());
@@ -210,7 +218,7 @@ fn maps_alt_printable_characters_to_meta_prefixed_bytes_when_not_commands() {
 #[test]
 fn maps_alt_shift_q_to_quit() {
     assert_eq!(
-        map_key_event(key_event(
+        map_linux(key_event(
             KeyCode::Char('Q'),
             KeyModifiers::ALT | KeyModifiers::SHIFT
         )),
@@ -221,14 +229,14 @@ fn maps_alt_shift_q_to_quit() {
 #[test]
 fn maps_alt_shift_printable_characters_to_meta_prefixed_bytes_when_not_quit() {
     assert_eq!(
-        map_key_event(key_event(
+        map_linux(key_event(
             KeyCode::Char('B'),
             KeyModifiers::ALT | KeyModifiers::SHIFT
         )),
         InputAction::PtyBytes(vec![0x1b, b'B'])
     );
     assert_eq!(
-        map_key_event(key_event(
+        map_linux(key_event(
             KeyCode::Char('Я'),
             KeyModifiers::ALT | KeyModifiers::SHIFT
         )),
@@ -243,19 +251,19 @@ fn maps_alt_shift_printable_characters_to_meta_prefixed_bytes_when_not_quit() {
 #[test]
 fn russian_layout_hotkeys_map_to_same_commands() {
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('е'), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('е'), KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::NewTab))
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('й'), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('й'), KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Layout(LayoutCommand::CloseFocusedPane))
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('ц'), KeyModifiers::ALT)),
+        map_linux(key_event(KeyCode::Char('ц'), KeyModifiers::ALT)),
         InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::CloseCurrentTab))
     );
     assert_eq!(
-        map_key_event(key_event(
+        map_linux(key_event(
             KeyCode::Char('Й'),
             KeyModifiers::ALT | KeyModifiers::SHIFT
         )),
@@ -268,11 +276,11 @@ fn default_keymap_supports_french_and_greek_symbols() {
     let keymap = Keymap::default();
 
     assert_eq!(
-        map_key_event_with_keymap(key_event(KeyCode::Char('a'), KeyModifiers::ALT), &keymap),
+        map_linux_with_keymap(key_event(KeyCode::Char('a'), KeyModifiers::ALT), &keymap),
         InputAction::Command(AppCommand::Layout(LayoutCommand::CloseFocusedPane))
     );
     assert_eq!(
-        map_key_event_with_keymap(key_event(KeyCode::Char('z'), KeyModifiers::ALT), &keymap),
+        map_linux_with_keymap(key_event(KeyCode::Char('z'), KeyModifiers::ALT), &keymap),
         InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::CloseCurrentTab))
     );
     assert_eq!(
@@ -290,15 +298,15 @@ fn default_keymap_supports_french_and_greek_symbols() {
         InputAction::Command(AppCommand::Clipboard(ClipboardCommand::PasteFromSystem))
     );
     assert_eq!(
-        map_key_event_with_keymap(key_event(KeyCode::Char('χ'), KeyModifiers::ALT), &keymap),
+        map_linux_with_keymap(key_event(KeyCode::Char('χ'), KeyModifiers::ALT), &keymap),
         InputAction::Command(AppCommand::SendInterrupt)
     );
     assert_eq!(
-        map_key_event_with_keymap(key_event(KeyCode::Char('τ'), KeyModifiers::ALT), &keymap),
+        map_linux_with_keymap(key_event(KeyCode::Char('τ'), KeyModifiers::ALT), &keymap),
         InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::NewTab))
     );
     assert_eq!(
-        map_key_event_with_keymap(
+        map_linux_with_keymap(
             key_event(KeyCode::Char(':'), KeyModifiers::ALT | KeyModifiers::SHIFT),
             &keymap
         ),
@@ -309,15 +317,15 @@ fn default_keymap_supports_french_and_greek_symbols() {
 #[test]
 fn maps_ctrl_printable_characters_to_control_bytes_when_not_reserved() {
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('a'), KeyModifiers::CONTROL)),
+        map_linux(key_event(KeyCode::Char('a'), KeyModifiers::CONTROL)),
         InputAction::PtyBytes(vec![0x01])
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('z'), KeyModifiers::CONTROL)),
+        map_linux(key_event(KeyCode::Char('z'), KeyModifiers::CONTROL)),
         InputAction::PtyBytes(vec![0x1a])
     );
     assert_eq!(
-        map_key_event(key_event(KeyCode::Char('['), KeyModifiers::CONTROL)),
+        map_linux(key_event(KeyCode::Char('['), KeyModifiers::CONTROL)),
         InputAction::PtyBytes(vec![0x1b])
     );
 }
@@ -345,21 +353,21 @@ next_tab = ["."]
         InputAction::PtyBytes("Я".as_bytes().to_vec())
     );
     assert_eq!(
-        map_key_event_with_keymap(
+        map_linux_with_keymap(
             key_event(KeyCode::Char('Ω'), KeyModifiers::ALT | KeyModifiers::SHIFT),
             &keymap
         ),
         InputAction::Command(AppCommand::Quit)
     );
     assert_eq!(
-        map_key_event_with_keymap(
+        map_linux_with_keymap(
             key_event(KeyCode::Char('B'), KeyModifiers::ALT | KeyModifiers::SHIFT),
             &keymap
         ),
         InputAction::PtyBytes(vec![0x1b, b'B'])
     );
     assert_eq!(
-        map_key_event_with_keymap(
+        map_linux_with_keymap(
             key_event(KeyCode::Char('a'), KeyModifiers::CONTROL),
             &keymap
         ),
@@ -375,7 +383,7 @@ fn custom_keymap_changes_letter_bindings() {
         .unwrap();
 
     assert_eq!(
-        map_key_event_with_keymap(key_event(KeyCode::Char('ν'), KeyModifiers::ALT), &keymap),
+        map_linux_with_keymap(key_event(KeyCode::Char('ν'), KeyModifiers::ALT), &keymap),
         InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::NewTab))
     );
     assert_eq!(
