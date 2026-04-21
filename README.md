@@ -6,7 +6,7 @@
 
 ![mtrm screenshot](docs/readme-assets/mtrm-screenshot.png)
 
-`mtrm` is a personal terminal workspace manager for local Linux shell work.
+`mtrm` is a personal terminal workspace manager for local shell work, built Linux-first and currently exercised primarily on Linux plus macOS CI.
 
 It gives me tabs, pane splits, keyboard-driven focus movement, desktop clipboard integration, and automatic persistence of layout and working directories.
 
@@ -38,6 +38,7 @@ By default, `mtrm` starts `$SHELL -i`. If `$SHELL` is not set, it falls back to 
 More specifically, the implementation in this repository has been tested on:
 
 - Linux Mint 22.3
+- `macos-latest` in GitHub Actions for build-and-test coverage
 
 Current expectations:
 
@@ -46,7 +47,9 @@ Current expectations:
 - It can start even when the local system clipboard backend is unavailable
 - Clipboard support depends on the local desktop environment; in headless or remote sessions built-in copy and paste may be unavailable
 - State restore brings back layout and working directories, not old running processes
-- Windows and macOS builds are not supported targets yet
+- release artifacts are still Linux-only
+- macOS is under active porting and is currently validated through automated checks rather than day-to-day manual use
+- Windows is not a supported target yet
 
 ## Installation
 

@@ -33,3 +33,26 @@ jobs:
 
     - name: Cargo test
       run: cargo test --workspace --verbose
+
+    - name: Build release binary
+      run: cargo build -p mtrm --release --verbose
+
+    - name: Prepare macOS artifacts
+      run: |
+        mkdir -p target/dist
+        cp target/release/mtrm target/dist/mtrm
+        tar -C target/dist -czf target/dist/mtrm-macos.tar.gz mtrm
+
+    - name: Upload macOS binary artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mtrm-macos
+        path: target/dist/mtrm
+        if-no-files-found: error
+
+    - name: Upload macOS archive artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mtrm-macos-tarball
+        path: target/dist/mtrm-macos.tar.gz
+        if-no-files-found: error
