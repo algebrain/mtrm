@@ -50,6 +50,26 @@ fn alt_char_bytes(ch: char) -> Vec<u8> {
     bytes
 }
 
+fn function_key_bytes(number: u8) -> Option<Vec<u8>> {
+    let bytes = match number {
+        1 => b"\x1bOP".as_slice(),
+        2 => b"\x1bOQ".as_slice(),
+        3 => b"\x1bOR".as_slice(),
+        4 => b"\x1bOS".as_slice(),
+        5 => b"\x1b[15~".as_slice(),
+        6 => b"\x1b[17~".as_slice(),
+        7 => b"\x1b[18~".as_slice(),
+        8 => b"\x1b[19~".as_slice(),
+        9 => b"\x1b[20~".as_slice(),
+        10 => b"\x1b[21~".as_slice(),
+        11 => b"\x1b[23~".as_slice(),
+        12 => b"\x1b[24~".as_slice(),
+        _ => return None,
+    };
+
+    Some(bytes.to_vec())
+}
+
 pub fn map_key_event(event: KeyEvent) -> InputAction {
     map_key_event_with_keymap(event, &Keymap::default())
 }
@@ -169,6 +189,9 @@ pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputActio
         KeyCode::Right => InputAction::PtyBytes(b"\x1b[C".to_vec()),
         KeyCode::Up => InputAction::PtyBytes(b"\x1b[A".to_vec()),
         KeyCode::Down => InputAction::PtyBytes(b"\x1b[B".to_vec()),
+        KeyCode::F(number) => function_key_bytes(number)
+            .map(InputAction::PtyBytes)
+            .unwrap_or(InputAction::Ignore),
         _ => InputAction::Ignore,
     }
 }

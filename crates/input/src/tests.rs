@@ -436,7 +436,59 @@ next_tab = ["."]
     #[test]
     fn unsupported_non_printable_events_are_ignored() {
         assert_eq!(
-            map_key_event(key_event(KeyCode::F(1), KeyModifiers::NONE)),
+            map_key_event(key_event(KeyCode::Insert, KeyModifiers::NONE)),
             InputAction::Ignore
+        );
+    }
+
+    #[test]
+    fn maps_plain_function_keys_to_pty_escape_sequences() {
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(1), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1bOP".to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(2), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1bOQ".to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(3), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1bOR".to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(4), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1bOS".to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(5), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1b[15~".to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(6), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1b[17~".to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(7), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1b[18~".to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(8), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1b[19~".to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(9), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1b[20~".to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(10), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1b[21~".to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(11), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1b[23~".to_vec())
+        );
+        assert_eq!(
+            map_key_event(key_event(KeyCode::F(12), KeyModifiers::NONE)),
+            InputAction::PtyBytes(b"\x1b[24~".to_vec())
         );
     }
