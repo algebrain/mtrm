@@ -11,15 +11,16 @@ pub(crate) struct HelpOverlayState {
 
 impl App {
     pub(crate) fn open_help_overlay(&mut self) {
+        let body_rows = self.help_body_rows();
         self.help_overlay = Some(HelpOverlayState {
-            scroll_row: 0,
+            scroll_row: clamp_help_scroll_row(keybindings_section_row(), body_rows),
             scroll_col: 0,
         });
         self.ui_dirty = true;
     }
 
     pub(crate) fn handle_help_key_event(&mut self, event: KeyEvent) {
-        let page_rows = self.help_page_rows();
+        let page_rows = self.help_body_rows();
         let max_row = max_help_scroll_row(page_rows);
         let max_col = max_help_scroll_col();
 
@@ -74,12 +75,12 @@ impl App {
         }
     }
 
-    fn help_page_rows(&self) -> usize {
-        self.last_content_area
-            .height
-            .saturating_sub(5)
-            .max(1)
-            .into()
+    pub(crate) fn help_body_rows(&self) -> usize {
+        let full_height = self.last_content_area.height.saturating_add(1);
+        let modal_height = full_height.min(20);
+        let inner_height = modal_height.saturating_sub(2);
+        let hint_height = if inner_height > 1 { 1 } else { 0 };
+        inner_height.saturating_sub(hint_height).max(1) as usize
     }
 }
 
@@ -89,6 +90,17 @@ pub(crate) fn is_toggle_help_overlay_event(event: KeyEvent) -> bool {
 
 pub(crate) fn help_overlay_lines() -> Vec<String> {
     help_text().lines().map(str::to_owned).collect()
+}
+
+pub(crate) fn keybindings_section_row() -> usize {
+    help_overlay_lines()
+        .iter()
+        .position(|line| line.trim() == "Keybindings:")
+        .unwrap_or(0)
+}
+
+pub(crate) fn clamp_help_scroll_row(row: usize, page_rows: usize) -> usize {
+    row.min(max_help_scroll_row(page_rows))
 }
 
 fn max_help_scroll_row(page_rows: usize) -> usize {

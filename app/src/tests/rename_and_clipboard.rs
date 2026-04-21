@@ -78,7 +78,8 @@ fn shift_f1_opens_help_overlay_and_escape_closes_it() {
     app.handle_key_event(key_event(KeyCode::F(1), KeyModifiers::SHIFT), &mut clipboard)
         .unwrap();
 
-    assert!(app.help_overlay.is_some());
+    let help = app.help_overlay.clone().expect("help overlay");
+    assert!(help.scroll_row > 0, "help should open near keybindings");
 
     app.handle_key_event(key_event(KeyCode::Esc, KeyModifiers::NONE), &mut clipboard)
         .unwrap();
@@ -105,6 +106,7 @@ fn help_overlay_arrow_keys_scroll_text() {
     let temp = tempdir().unwrap();
     let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
     let mut clipboard = MemoryClipboard::new();
+    app.last_content_area.height = 40;
 
     app.open_help_overlay();
 
@@ -117,6 +119,48 @@ fn help_overlay_arrow_keys_scroll_text() {
     let updated = app.help_overlay.clone().unwrap();
     assert_eq!(updated.scroll_row, initial.scroll_row + 1);
     assert_eq!(updated.scroll_col, initial.scroll_col + 1);
+}
+
+#[test]
+fn help_overlay_down_key_keeps_scrolling_on_tall_terminal() {
+    let temp = tempdir().unwrap();
+    let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+    let mut clipboard = MemoryClipboard::new();
+    app.last_content_area.height = 40;
+
+    app.open_help_overlay();
+    let initial = app.help_overlay.clone().unwrap();
+
+    app.handle_key_event(key_event(KeyCode::Down, KeyModifiers::NONE), &mut clipboard)
+        .unwrap();
+    app.handle_key_event(key_event(KeyCode::Down, KeyModifiers::NONE), &mut clipboard)
+        .unwrap();
+
+    let updated = app.help_overlay.clone().unwrap();
+    assert_eq!(updated.scroll_row, initial.scroll_row + 2);
+}
+
+#[test]
+fn help_overlay_mouse_wheel_scrolls_text() {
+    let temp = tempdir().unwrap();
+    let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+
+    app.open_help_overlay();
+    let initial = app.help_overlay.clone().unwrap();
+
+    app.handle_mouse_event(
+        MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        },
+        DEFAULT_CONTENT_AREA,
+    )
+    .unwrap();
+
+    let updated = app.help_overlay.clone().unwrap();
+    assert_eq!(updated.scroll_row, initial.scroll_row + 1);
 }
 
 #[test]

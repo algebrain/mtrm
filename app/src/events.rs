@@ -10,7 +10,7 @@ use ratatui::backend::Backend;
 
 use crate::app::{App, AppError};
 use crate::cli::{tabs_error, terminal_content_area, terminal_io_error};
-use crate::help::is_toggle_help_overlay_event;
+use crate::help::{clamp_help_scroll_row, is_toggle_help_overlay_event};
 use crate::rename::{is_start_rename_pane_event, is_start_rename_tab_event};
 
 const ALT_PREFIX_TIMEOUT: Duration = Duration::from_millis(80);
@@ -72,7 +72,23 @@ impl App {
         event: MouseEvent,
         content_area: mtrm_layout::Rect,
     ) -> Result<(), AppError> {
-        if self.rename.is_some() || self.help_overlay.is_some() {
+        if self.rename.is_some() {
+            return Ok(());
+        }
+        let help_page_rows = self.help_body_rows();
+        if let Some(help) = &mut self.help_overlay {
+            match event.kind {
+                MouseEventKind::ScrollUp => {
+                    help.scroll_row = help.scroll_row.saturating_sub(1);
+                    self.ui_dirty = true;
+                }
+                MouseEventKind::ScrollDown => {
+                    help.scroll_row =
+                        clamp_help_scroll_row(help.scroll_row.saturating_add(1), help_page_rows);
+                    self.ui_dirty = true;
+                }
+                _ => {}
+            }
             return Ok(());
         }
 
