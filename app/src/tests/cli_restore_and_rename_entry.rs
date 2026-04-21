@@ -133,16 +133,32 @@ fn cli_version_string_uses_git_tag_and_build_suffix() {
 #[test]
 fn help_text_mentions_keybindings_and_keymap_file() {
     let help = help_text();
+    let bindings = current_platform_bindings();
 
     assert!(help.contains("Keybindings:"));
     assert!(help.contains("--no-clipboard"));
     assert!(help.contains("Ctrl+C           Copy selection"));
-    assert!(help.contains("Alt+T            New tab"));
-    assert!(help.contains("Alt+Shift+R      Rename current tab"));
-    assert!(help.contains("Alt+Shift+E      Rename current pane"));
-    assert!(help.contains("Shift+F1         Open help overlay"));
-    assert!(help.contains("Alt+Shift+Left   Resize pane left"));
-    assert!(help.contains("Alt+Shift+Right  Resize pane right"));
+    assert!(help.contains(&format!("{:<16} New tab", bindings.new_tab.label)));
+    assert!(help.contains(&format!(
+        "{:<16} Rename current tab",
+        bindings.rename_tab.label
+    )));
+    assert!(help.contains(&format!(
+        "{:<16} Rename current pane",
+        bindings.rename_pane.label
+    )));
+    assert!(help.contains(&format!(
+        "{:<16} Open help overlay",
+        bindings.open_help.label
+    )));
+    assert!(help.contains(&format!(
+        "{:<16} Resize pane left",
+        bindings.resize_left.label
+    )));
+    assert!(help.contains(&format!(
+        "{:<16} Resize pane right",
+        bindings.resize_right.label
+    )));
     assert!(help.contains("Shift+PageUp     Scroll pane history up by one page"));
     assert!(help.contains("~/.mtrm/keymap.toml"));
 }
@@ -326,10 +342,7 @@ fn restore_or_new_uses_keymap_file_for_bindings() {
     let mut clipboard = MemoryClipboard::new();
 
     with_test_home(&home, || {
-        app.handle_key_event(
-            key_event(KeyCode::Char('ν'), KeyModifiers::ALT),
-            &mut clipboard,
-        )
+        app.handle_key_event(modified_char_event('ν', current_platform_bindings().new_tab), &mut clipboard)
     })
     .unwrap();
 
@@ -343,7 +356,7 @@ fn alt_shift_r_opens_rename_tab_modal() {
     let mut clipboard = MemoryClipboard::new();
 
     app.handle_key_event(
-        key_event(KeyCode::Char('R'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+        modified_char_event('R', current_platform_bindings().rename_tab),
         &mut clipboard,
     )
     .unwrap();
@@ -365,7 +378,7 @@ fn alt_shift_russian_ka_opens_rename_tab_modal() {
     let mut clipboard = MemoryClipboard::new();
 
     app.handle_key_event(
-        key_event(KeyCode::Char('К'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+        modified_char_event('К', current_platform_bindings().rename_tab),
         &mut clipboard,
     )
     .unwrap();

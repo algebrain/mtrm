@@ -6,7 +6,10 @@ use crossterm::event::{
 use mtrm_clipboard::{ClipboardBackend, ClipboardError, MemoryClipboard, UnavailableClipboard};
 use mtrm_core::{AppCommand, FocusMoveDirection, LayoutCommand, TabCommand};
 use mtrm_keymap::Keymap;
-use mtrm_platform_keys::PlatformKeyProfile;
+use mtrm_platform_keys::{
+    ModifiedCharBinding, PlatformKeyProfile, Shortcut, ShortcutKey, current_platform_key_profile,
+    key_bindings_for_profile,
+};
 use mtrm_process::ShellProcessConfig;
 use mtrm_state::save_state;
 use ratatui::backend::TestBackend;
@@ -50,6 +53,26 @@ fn key_event(code: crossterm::event::KeyCode, modifiers: KeyModifiers) -> KeyEve
         kind: KeyEventKind::Press,
         state: KeyEventState::NONE,
     }
+}
+
+fn current_platform_bindings() -> &'static mtrm_platform_keys::PlatformKeyBindings {
+    key_bindings_for_profile(current_platform_key_profile())
+}
+
+fn modified_char_event(ch: char, binding: ModifiedCharBinding) -> KeyEvent {
+    key_event(KeyCode::Char(ch), binding.modifiers)
+}
+
+fn shortcut_event(shortcut: Shortcut) -> KeyEvent {
+    let code = match shortcut.key {
+        ShortcutKey::Char(ch) => KeyCode::Char(ch),
+        ShortcutKey::Left => KeyCode::Left,
+        ShortcutKey::Right => KeyCode::Right,
+        ShortcutKey::Up => KeyCode::Up,
+        ShortcutKey::Down => KeyCode::Down,
+        ShortcutKey::F(number) => KeyCode::F(number),
+    };
+    key_event(code, shortcut.modifiers)
 }
 
 #[derive(Debug)]

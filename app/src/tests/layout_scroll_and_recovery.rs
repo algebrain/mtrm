@@ -26,7 +26,7 @@ fn alt_x_preserves_interactive_backspace_and_arrow_editing_after_late_tty_corrup
         .unwrap();
     thread::sleep(Duration::from_millis(200));
     app.handle_key_event(
-        key_event(KeyCode::Char('x'), KeyModifiers::ALT),
+        modified_char_event('x', current_platform_bindings().interrupt),
         &mut clipboard,
     )
     .unwrap();
@@ -41,7 +41,7 @@ fn alt_x_preserves_interactive_backspace_and_arrow_editing_after_late_tty_corrup
     });
     assert!(
         prompt_returned,
-        "shell did not return visible prompt after Alt+X"
+        "shell did not return visible prompt after the interrupt shortcut"
     );
 
     // Give the delayed tty-corruption path time to either fire or get cleaned up before
@@ -115,7 +115,7 @@ fn alt_x_preserves_interactive_backspace_and_arrow_editing_after_late_tty_corrup
     });
     assert!(
         backspace_ok,
-        "backspace editing degraded after Alt+X and late tty corruption; pane text was {:?}",
+        "backspace editing degraded after the interrupt shortcut and late tty corruption; pane text was {:?}",
         app.tabs.active_pane_text().ok()
     );
 
@@ -179,7 +179,7 @@ fn alt_x_preserves_interactive_backspace_and_arrow_editing_after_late_tty_corrup
     });
     assert!(
         ok,
-        "left-arrow editing degraded after Alt+X and late tty corruption; pane text was {:?}",
+        "left-arrow editing degraded after the interrupt shortcut and late tty corruption; pane text was {:?}",
         app.tabs.active_pane_text().ok()
     );
 }
@@ -194,10 +194,7 @@ fn handle_key_event_alt_minus_splits_active_pane() {
     let mut clipboard = MemoryClipboard::new();
 
     with_test_home(&home, || {
-        app.handle_key_event(
-            key_event(KeyCode::Char('-'), KeyModifiers::ALT),
-            &mut clipboard,
-        )
+        app.handle_key_event(shortcut_event(current_platform_bindings().split_vertical), &mut clipboard)
     })
     .unwrap();
 
@@ -223,10 +220,7 @@ fn handle_key_event_alt_t_creates_new_tab() {
     let mut clipboard = MemoryClipboard::new();
 
     with_test_home(&home, || {
-        app.handle_key_event(
-            key_event(KeyCode::Char('t'), KeyModifiers::ALT),
-            &mut clipboard,
-        )
+        app.handle_key_event(modified_char_event('t', current_platform_bindings().new_tab), &mut clipboard)
     })
     .unwrap();
 

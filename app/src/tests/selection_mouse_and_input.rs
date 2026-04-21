@@ -308,7 +308,7 @@ fn handle_key_event_alt_x_sends_interrupt() {
     app.tabs.write_to_active_pane(b"sleep 5\n").unwrap();
     thread::sleep(Duration::from_millis(150));
     app.handle_key_event(
-        key_event(KeyCode::Char('x'), KeyModifiers::ALT),
+        modified_char_event('x', current_platform_bindings().interrupt),
         &mut clipboard,
     )
     .unwrap();

@@ -9,7 +9,7 @@ fn rename_tab_modal_applies_title_and_persists_it() {
 
     with_test_home(&home, || {
         app.handle_key_event(
-            key_event(KeyCode::Char('R'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            modified_char_event('R', current_platform_bindings().rename_tab),
             &mut clipboard,
         )
     })
@@ -75,7 +75,7 @@ fn shift_f1_opens_help_overlay_and_escape_closes_it() {
     let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
     let mut clipboard = MemoryClipboard::new();
 
-    app.handle_key_event(key_event(KeyCode::F(1), KeyModifiers::SHIFT), &mut clipboard)
+    app.handle_key_event(shortcut_event(current_platform_bindings().open_help), &mut clipboard)
         .unwrap();
 
     let help = app.help_overlay.clone().expect("help overlay");
@@ -204,7 +204,7 @@ fn alt_shift_e_opens_rename_pane_modal() {
     let mut clipboard = MemoryClipboard::new();
 
     app.handle_key_event(
-        key_event(KeyCode::Char('E'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+        modified_char_event('E', current_platform_bindings().rename_pane),
         &mut clipboard,
     )
     .unwrap();
@@ -226,7 +226,7 @@ fn alt_shift_russian_u_opens_rename_pane_modal() {
     let mut clipboard = MemoryClipboard::new();
 
     app.handle_key_event(
-        key_event(KeyCode::Char('У'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+        modified_char_event('У', current_platform_bindings().rename_pane),
         &mut clipboard,
     )
     .unwrap();
@@ -251,7 +251,7 @@ fn rename_pane_modal_applies_title_and_persists_it() {
 
     with_test_home(&home, || {
         app.handle_key_event(
-            key_event(KeyCode::Char('E'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            modified_char_event('E', current_platform_bindings().rename_pane),
             &mut clipboard,
         )
     })

@@ -1,4 +1,3 @@
-
 use super::*;
 use crossterm::event::{KeyEventKind, KeyEventState};
 use mtrm_keymap::Keymap;
