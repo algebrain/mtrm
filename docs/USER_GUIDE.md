@@ -115,6 +115,10 @@ If that backend is unavailable:
 - `Ctrl+C` and `Ctrl+V` do not terminate the program;
 - `mtrm` shows a short notice instead.
 
+If clipboard read or write fails after startup, `mtrm` uses the same short-notice path instead of exiting.
+
+The same in-UI notice path is also used for other recoverable runtime failures, such as state-save errors.
+
 This is especially relevant in remote or headless sessions.
 
 ## State Persistence

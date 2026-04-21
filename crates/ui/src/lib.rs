@@ -673,7 +673,7 @@ mod tests {
                 panes: vec![],
                 focused: true,
                 clipboard_notice: Some(ClipboardNoticeView {
-                    text: "Буфер обмена недоступен".to_owned(),
+                    text: "Clipboard is unavailable".to_owned(),
                 }),
                 modal: None,
             },
@@ -682,7 +682,7 @@ mod tests {
         );
 
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(59, 0)].symbol(), "н");
+        assert_eq!(buffer[(59, 0)].symbol(), "e");
     }
 
     #[test]
@@ -710,7 +710,7 @@ mod tests {
                 }],
                 focused: true,
                 clipboard_notice: Some(ClipboardNoticeView {
-                    text: "Буфер обмена недоступен".to_owned(),
+                    text: "Clipboard is unavailable".to_owned(),
                 }),
                 modal: None,
             },
@@ -719,7 +719,44 @@ mod tests {
         );
 
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(1, 1)].symbol(), "Б");
+        assert_eq!(buffer[(1, 1)].symbol(), "C");
+    }
+
+    #[test]
+    fn renders_generic_error_notice_as_overlay_when_tab_bar_is_too_narrow() {
+        let terminal = render(
+            &FrameView {
+                tabs: vec![TabView {
+                    id: TabId::new(1),
+                    title: "very-wide-active-tab".to_owned(),
+                    active: true,
+                }],
+                panes: vec![PaneView {
+                    id: PaneId::new(1),
+                    title: "pane".to_owned(),
+                    area: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 20,
+                        height: 5,
+                    },
+                    active: true,
+                    lines: vec![],
+                    selection: None,
+                    cursor: None,
+                }],
+                focused: true,
+                clipboard_notice: Some(ClipboardNoticeView {
+                    text: "Failed to save state".to_owned(),
+                }),
+                modal: None,
+            },
+            20,
+            8,
+        );
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(1, 1)].symbol(), "F");
     }
 
     #[test]

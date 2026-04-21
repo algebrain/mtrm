@@ -135,7 +135,9 @@ mtrm --debug-log /tmp/mtrm-pty.log
 
 Letter-based shortcuts are configured through `~/.mtrm/keymap.toml`.
 
-If the system clipboard is unavailable, `Ctrl+C` and `Ctrl+V` stay assigned to copy and paste, but `mtrm` shows a short notice instead of failing to start.
+If the system clipboard is unavailable, or if a clipboard read or write fails at runtime, `Ctrl+C` and `Ctrl+V` stay assigned to copy and paste, but `mtrm` shows a short notice inside the UI instead of exiting.
+
+The same short-notice path is also used for other recoverable runtime failures such as state-save errors and user actions that cannot be completed.
 
 The bundled default keymap already covers:
 

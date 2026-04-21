@@ -30,8 +30,7 @@ use ratatui::backend::CrosstermBackend;
 use thiserror::Error;
 
 const ALT_PREFIX_TIMEOUT: Duration = Duration::from_millis(80);
-const CLIPBOARD_NOTICE_TEXT: &str = "Буфер обмена недоступен";
-const CLIPBOARD_NOTICE_TTL: Duration = Duration::from_secs(3);
+const NOTICE_TTL: Duration = Duration::from_secs(3);
 
 pub struct App {
     shell: ShellProcessConfig,
@@ -166,7 +165,7 @@ impl App {
             return self.handle_rename_key_event(event);
         }
 
-        let Some(event) = self.resolve_alt_prefixed_key_event(event)? else {
+        let Some(event) = self.resolve_alt_prefixed_key_event(event) else {
             return Ok(());
         };
 
@@ -179,7 +178,7 @@ impl App {
             return Ok(());
         }
 
-        if self.handle_terminal_navigation_key(event)? {
+        if self.handle_terminal_navigation_key(event) {
             return Ok(());
         }
 
@@ -187,8 +186,9 @@ impl App {
             InputAction::Ignore => {}
             InputAction::PtyBytes(bytes) => {
                 self.clear_selection();
-                self.tabs.write_to_active_pane(&bytes).map_err(tabs_error)?;
-                self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
+                if self.try_write_to_active_pane(&bytes, "Failed to write to active pane") {
+                    self.ui_dirty |= self.try_refresh_all_panes_output();
+                }
             }
             InputAction::Command(command) => {
                 self.handle_command(command, clipboard)?;
@@ -207,16 +207,18 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) => {
                 if let Some(tab_id) = self.tab_id_at_mouse_column(content_area.width, event) {
                     self.clear_selection();
-                    self.tabs.activate_tab(tab_id).map_err(tabs_error)?;
-                    self.ui_dirty = true;
-                    self.save()?;
+                    if self.try_activate_tab(tab_id) {
+                        self.ui_dirty = true;
+                        self.try_save_with_notice();
+                    }
                 } else if let Some(target) = self.selection_target_at(content_area, event) {
-                    self.tabs.focus_pane(target.pane_id).map_err(tabs_error)?;
-                    self.selection = Some(SelectionState {
-                        pane_id: target.pane_id,
-                        anchor: target.point,
-                        focus: target.point,
-                    });
+                    if self.try_focus_pane(target.pane_id) {
+                        self.selection = Some(SelectionState {
+                            pane_id: target.pane_id,
+                            anchor: target.point,
+                            focus: target.point,
+                        });
+                    }
                 } else {
                     self.clear_selection();
                 }
@@ -235,48 +237,44 @@ impl App {
         Ok(())
     }
 
-    fn handle_terminal_navigation_key(&mut self, event: KeyEvent) -> Result<bool, AppError> {
+    fn handle_terminal_navigation_key(&mut self, event: KeyEvent) -> bool {
         if event.modifiers != KeyModifiers::NONE {
-            return Ok(false);
+            return false;
         }
 
         match event.code {
             KeyCode::Home => {
-                self.tabs
-                    .write_to_active_pane(b"\x1b[H")
-                    .map_err(tabs_error)?;
-                self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
-                Ok(true)
+                if self.try_write_to_active_pane(b"\x1b[H", "Failed to move shell cursor") {
+                    self.ui_dirty |= self.try_refresh_all_panes_output();
+                }
+                true
             }
             KeyCode::End => {
                 if self
                     .tabs
                     .active_pane_is_scrolled_back()
-                    .map_err(tabs_error)?
+                    .unwrap_or(false)
                 {
-                    self.tabs
-                        .scroll_active_pane_to_bottom()
-                        .map_err(tabs_error)?;
-                    self.ui_dirty = true;
-                } else {
-                    self.tabs
-                        .write_to_active_pane(b"\x1b[F")
-                        .map_err(tabs_error)?;
-                    self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
+                    match self.tabs.scroll_active_pane_to_bottom().map_err(tabs_error) {
+                        Ok(()) => {
+                            self.ui_dirty = true;
+                        }
+                        Err(_) => self.show_notice("Failed to scroll active pane"),
+                    }
+                } else if self.try_write_to_active_pane(b"\x1b[F", "Failed to move shell cursor") {
+                    self.ui_dirty |= self.try_refresh_all_panes_output();
                 }
-                Ok(true)
+                true
             }
-            _ => Ok(false),
+            _ => false,
         }
     }
 
     pub fn redraw<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), AppError> {
-        self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
+        self.ui_dirty |= self.try_refresh_all_panes_output();
         let content_area = terminal_content_area(terminal)?;
         self.last_content_area = content_area;
-        self.tabs
-            .resize_active_tab(content_area)
-            .map_err(tabs_error)?;
+        self.try_resize_active_tab(content_area);
         let frame_view = self.build_frame_view(content_area)?;
         render_frame(terminal, &frame_view).map_err(terminal_io_error)
     }
@@ -292,8 +290,8 @@ impl App {
         clipboard: &mut dyn ClipboardBackend,
     ) -> Result<(), AppError> {
         while !self.should_quit {
-            self.flush_pending_alt_prefix_if_expired()?;
-            self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
+            self.flush_pending_alt_prefix_if_expired();
+            self.ui_dirty |= self.try_refresh_all_panes_output();
             if self.ui_dirty {
                 self.redraw(terminal)?;
                 self.ui_dirty = false;
@@ -308,21 +306,21 @@ impl App {
                     }
                     Event::Resize(cols, rows) => {
                         self.clear_selection();
-                        self.tabs
-                            .resize_active_tab(mtrm_layout::Rect {
-                                x: 0,
-                                y: 0,
-                                width: cols,
-                                height: rows.saturating_sub(1),
-                            })
-                            .map_err(tabs_error)?;
-                        self.last_content_area = mtrm_layout::Rect {
+                        let resized = self.try_resize_active_tab(mtrm_layout::Rect {
                             x: 0,
                             y: 0,
                             width: cols,
                             height: rows.saturating_sub(1),
-                        };
-                        self.ui_dirty = true;
+                        });
+                        if resized {
+                            self.last_content_area = mtrm_layout::Rect {
+                                x: 0,
+                                y: 0,
+                                width: cols,
+                                height: rows.saturating_sub(1),
+                            };
+                            self.ui_dirty = true;
+                        }
                     }
                     Event::FocusGained => {
                         self.window_focused = true;
@@ -343,42 +341,39 @@ impl App {
     fn resolve_alt_prefixed_key_event(
         &mut self,
         event: KeyEvent,
-    ) -> Result<Option<KeyEvent>, AppError> {
+    ) -> Option<KeyEvent> {
         if let Some(started_at) = self.pending_alt_prefix_started_at.take() {
             if started_at.elapsed() <= ALT_PREFIX_TIMEOUT {
                 if let Some(synthetic) = synthesize_alt_prefixed_key_event(event) {
-                    return Ok(Some(synthetic));
+                    return Some(synthetic);
                 }
             }
 
-            self.tabs
-                .write_to_active_pane(b"\x1b")
-                .map_err(tabs_error)?;
-            self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
+            if self.try_write_to_active_pane(b"\x1b", "Failed to write to active pane") {
+                self.ui_dirty |= self.try_refresh_all_panes_output();
+            }
         }
 
         if event.modifiers == KeyModifiers::NONE && matches!(event.code, KeyCode::Esc) {
             self.pending_alt_prefix_started_at = Some(Instant::now());
-            return Ok(None);
+            return None;
         }
 
-        Ok(Some(event))
+        Some(event)
     }
 
-    fn flush_pending_alt_prefix_if_expired(&mut self) -> Result<(), AppError> {
+    fn flush_pending_alt_prefix_if_expired(&mut self) {
         let Some(started_at) = self.pending_alt_prefix_started_at else {
-            return Ok(());
+            return;
         };
         if started_at.elapsed() <= ALT_PREFIX_TIMEOUT {
-            return Ok(());
+            return;
         }
 
         self.pending_alt_prefix_started_at = None;
-        self.tabs
-            .write_to_active_pane(b"\x1b")
-            .map_err(tabs_error)?;
-        self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
-        Ok(())
+        if self.try_write_to_active_pane(b"\x1b", "Failed to write to active pane") {
+            self.ui_dirty |= self.try_refresh_all_panes_output();
+        }
     }
 
     fn handle_command(
@@ -400,9 +395,11 @@ impl App {
                     match clipboard.set_text(&text) {
                         Ok(()) => {}
                         Err(ClipboardError::Unavailable) => {
-                            self.show_clipboard_unavailable_notice();
+                            self.show_notice("Clipboard is unavailable");
                         }
-                        Err(error) => return Err(clipboard_error(error)),
+                        Err(error) => {
+                            self.show_notice(notice_for_clipboard_error(&error));
+                        }
                     }
                 }
             }
@@ -411,65 +408,139 @@ impl App {
                 let text = match clipboard.get_text() {
                     Ok(text) => text,
                     Err(ClipboardError::Unavailable) => {
-                        self.show_clipboard_unavailable_notice();
+                        self.show_notice("Clipboard is unavailable");
                         return Ok(());
                     }
-                    Err(error) => return Err(clipboard_error(error)),
+                    Err(error) => {
+                        self.show_notice(notice_for_clipboard_error(&error));
+                        return Ok(());
+                    }
                 };
                 self.tabs
                     .write_to_active_pane(text.as_bytes())
                     .map_err(tabs_error)?;
                 self.ui_dirty |= self.refresh_all_panes_output().map_err(tabs_error)?;
-                self.save()?;
+                self.try_save_with_notice();
             }
             AppCommand::Layout(layout_command) => {
                 self.clear_selection();
-                let result = self.handle_layout_command(layout_command)?;
-                self.ui_dirty |= result.ui_dirty;
-                if result.persist {
-                    self.save()?;
+                match self.handle_layout_command(layout_command) {
+                    Ok(result) => {
+                        self.ui_dirty |= result.ui_dirty;
+                        if result.persist {
+                            self.try_save_with_notice();
+                        }
+                    }
+                    Err(_) => self.show_notice("Failed to update layout"),
                 }
             }
             AppCommand::Tabs(tab_command) => {
                 self.clear_selection();
-                self.handle_tab_command(tab_command)?;
-                self.ui_dirty = true;
-                self.save()?;
+                match self.handle_tab_command(tab_command) {
+                    Ok(()) => {
+                        self.ui_dirty = true;
+                        self.try_save_with_notice();
+                    }
+                    Err(_) => self.show_notice("Failed to update tabs"),
+                }
             }
             AppCommand::SendInterrupt => {
                 self.clear_selection();
-                self.tabs
-                    .send_interrupt_to_active_pane()
-                    .map_err(tabs_error)?;
-                self.ui_dirty = true;
+                match self.tabs.send_interrupt_to_active_pane().map_err(tabs_error) {
+                    Ok(()) => {
+                        self.ui_dirty = true;
+                    }
+                    Err(_) => self.show_notice("Failed to interrupt active process"),
+                }
             }
             AppCommand::RequestSave => {
-                self.save()?;
+                self.try_save_with_notice();
             }
             AppCommand::Quit => {
-                self.save()?;
-                self.should_quit = true;
+                if self.try_save_with_notice() {
+                    self.should_quit = true;
+                }
             }
         }
 
         Ok(())
     }
 
-    fn show_clipboard_unavailable_notice(&mut self) {
+    fn show_notice(&mut self, text: impl Into<String>) {
         let now = Instant::now();
         let should_refresh = self
             .clipboard_notice
             .as_ref()
-            .map(|notice| now.duration_since(notice.shown_at) >= CLIPBOARD_NOTICE_TTL)
+            .map(|notice| now.duration_since(notice.shown_at) >= NOTICE_TTL)
             .unwrap_or(true);
 
         if should_refresh {
             self.clipboard_notice = Some(UiNotice {
-                text: CLIPBOARD_NOTICE_TEXT.to_owned(),
+                text: text.into(),
                 shown_at: now,
             });
         }
         self.ui_dirty = true;
+    }
+
+    fn try_save_with_notice(&mut self) -> bool {
+        match self.save() {
+            Ok(()) => true,
+            Err(_) => {
+                self.show_notice("Failed to save state");
+                false
+            }
+        }
+    }
+
+    fn try_refresh_all_panes_output(&mut self) -> bool {
+        match self.refresh_all_panes_output() {
+            Ok(changed) => changed,
+            Err(_) => {
+                self.show_notice("Failed to refresh pane output");
+                false
+            }
+        }
+    }
+
+    fn try_write_to_active_pane(&mut self, bytes: &[u8], notice: &'static str) -> bool {
+        match self.tabs.write_to_active_pane(bytes).map_err(tabs_error) {
+            Ok(()) => true,
+            Err(_) => {
+                self.show_notice(notice);
+                false
+            }
+        }
+    }
+
+    fn try_resize_active_tab(&mut self, area: mtrm_layout::Rect) -> bool {
+        match self.tabs.resize_active_tab(area).map_err(tabs_error) {
+            Ok(()) => true,
+            Err(_) => {
+                self.show_notice("Failed to resize active tab");
+                false
+            }
+        }
+    }
+
+    fn try_activate_tab(&mut self, tab_id: mtrm_core::TabId) -> bool {
+        match self.tabs.activate_tab(tab_id).map_err(tabs_error) {
+            Ok(()) => true,
+            Err(_) => {
+                self.show_notice("Failed to update tabs");
+                false
+            }
+        }
+    }
+
+    fn try_focus_pane(&mut self, pane_id: mtrm_core::PaneId) -> bool {
+        match self.tabs.focus_pane(pane_id).map_err(tabs_error) {
+            Ok(()) => true,
+            Err(_) => {
+                self.show_notice("Failed to focus pane");
+                false
+            }
+        }
     }
 
     fn handle_layout_command(&mut self, command: LayoutCommand) -> Result<LayoutCommandResult, AppError> {
@@ -649,7 +720,7 @@ impl App {
                 }
                 self.rename = None;
                 self.ui_dirty = true;
-                self.save()?;
+                self.try_save_with_notice();
             }
             KeyCode::Backspace => {
                 if state.cursor > 0 {
@@ -772,7 +843,7 @@ impl App {
         let clipboard_notice = self
             .clipboard_notice
             .as_ref()
-            .filter(|notice| notice.shown_at.elapsed() < CLIPBOARD_NOTICE_TTL)
+            .filter(|notice| notice.shown_at.elapsed() < NOTICE_TTL)
             .map(|notice| ClipboardNoticeView {
                 text: notice.text.clone(),
             });
@@ -1029,8 +1100,12 @@ fn state_error(error: impl ToString) -> AppError {
     AppError::State(error.to_string())
 }
 
-fn clipboard_error(error: ClipboardError) -> AppError {
-    AppError::Clipboard(error.to_string())
+fn notice_for_clipboard_error(error: &ClipboardError) -> &'static str {
+    match error {
+        ClipboardError::Unavailable => "Clipboard is unavailable",
+        ClipboardError::Read(_) => "Failed to read from clipboard",
+        ClipboardError::Write(_) => "Failed to write to clipboard",
+    }
 }
 
 fn build_clipboard(disable_clipboard: bool) -> Box<dyn ClipboardBackend> {
@@ -1248,7 +1323,7 @@ mod tests {
     use crossterm::event::{
         KeyCode, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEventKind,
     };
-    use mtrm_clipboard::{MemoryClipboard, UnavailableClipboard};
+    use mtrm_clipboard::{ClipboardBackend, ClipboardError, MemoryClipboard, UnavailableClipboard};
     use mtrm_core::{FocusMoveDirection, LayoutCommand};
     use ratatui::backend::TestBackend;
     use serial_test::serial;
@@ -1281,6 +1356,28 @@ mod tests {
             modifiers,
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
+        }
+    }
+
+    #[derive(Debug)]
+    struct FailingClipboard {
+        read_error: Option<ClipboardError>,
+        write_error: Option<ClipboardError>,
+    }
+
+    impl ClipboardBackend for FailingClipboard {
+        fn get_text(&mut self) -> Result<String, ClipboardError> {
+            Err(self
+                .read_error
+                .take()
+                .unwrap_or_else(|| ClipboardError::Read("clipboard read failed".to_owned())))
+        }
+
+        fn set_text(&mut self, _text: &str) -> Result<(), ClipboardError> {
+            Err(self
+                .write_error
+                .take()
+                .unwrap_or_else(|| ClipboardError::Write("clipboard write failed".to_owned())))
         }
     }
 
@@ -1931,7 +2028,86 @@ mod tests {
         .unwrap();
 
         let notice = app.clipboard_notice.as_ref().expect("clipboard notice");
-        assert_eq!(notice.text, "Буфер обмена недоступен");
+        assert_eq!(notice.text, "Clipboard is unavailable");
+    }
+
+    #[test]
+    #[serial]
+    fn paste_with_clipboard_read_error_sets_notice_and_does_not_fail() {
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir(&home).unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = FailingClipboard {
+            read_error: Some(ClipboardError::Read("content is not available".to_owned())),
+            write_error: None,
+        };
+
+        let result = with_test_home(&home, || {
+            app.handle_key_event(
+                key_event(KeyCode::Char('v'), KeyModifiers::CONTROL),
+                &mut clipboard,
+            )
+        });
+
+        assert!(result.is_ok());
+        let notice = app.clipboard_notice.as_ref().expect("clipboard notice");
+        assert_eq!(notice.text, "Failed to read from clipboard");
+    }
+
+    #[test]
+    fn copy_with_unavailable_clipboard_sets_notice_and_does_not_fail() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let pane_id = app.tabs.active_pane_id();
+        let mut clipboard = UnavailableClipboard;
+
+        app.tabs
+            .inject_bytes_into_active_pane_screen(b"copy text")
+            .unwrap();
+        app.selection = Some(SelectionState {
+            pane_id,
+            anchor: SelectionPoint { row: 0, col: 0 },
+            focus: SelectionPoint { row: 0, col: 4 },
+        });
+
+        app.handle_key_event(
+            key_event(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            &mut clipboard,
+        )
+        .unwrap();
+
+        let notice = app.clipboard_notice.as_ref().expect("clipboard notice");
+        assert_eq!(notice.text, "Clipboard is unavailable");
+    }
+
+    #[test]
+    fn copy_with_clipboard_write_error_sets_notice_and_does_not_fail() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let pane_id = app.tabs.active_pane_id();
+        let mut clipboard = FailingClipboard {
+            read_error: None,
+            write_error: Some(ClipboardError::Write("clipboard write failed".to_owned())),
+        };
+
+        app.tabs
+            .inject_bytes_into_active_pane_screen(b"copy text")
+            .unwrap();
+        app.selection = Some(SelectionState {
+            pane_id,
+            anchor: SelectionPoint { row: 0, col: 0 },
+            focus: SelectionPoint { row: 0, col: 4 },
+        });
+
+        app.handle_key_event(
+            key_event(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            &mut clipboard,
+        )
+        .unwrap();
+
+        let notice = app.clipboard_notice.as_ref().expect("clipboard notice");
+        assert_eq!(notice.text, "Failed to write to clipboard");
     }
 
     #[test]
@@ -2227,6 +2403,22 @@ mod tests {
             })
         });
         assert!(ok);
+    }
+
+    #[test]
+    fn closing_last_tab_sets_notice_and_does_not_fail() {
+        let temp = tempdir().unwrap();
+        let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        app.handle_command(
+            AppCommand::Tabs(TabCommand::CloseCurrentTab),
+            &mut clipboard,
+        )
+        .unwrap();
+
+        let notice = app.clipboard_notice.as_ref().expect("clipboard notice");
+        assert_eq!(notice.text, "Failed to update tabs");
     }
 
     #[test]
@@ -3072,8 +3264,30 @@ mod tests {
             app.handle_command(AppCommand::Quit, &mut clipboard)
         });
 
-        assert!(result.is_err());
+        assert!(result.is_ok());
         assert!(!app.should_quit);
+        let notice = app.clipboard_notice.as_ref().expect("clipboard notice");
+        assert_eq!(notice.text, "Failed to save state");
+    }
+
+    #[test]
+    #[serial]
+    fn request_save_failure_sets_notice_and_does_not_fail() {
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir(&home).unwrap();
+        fs::write(home.join(".mtrm"), b"not a directory").unwrap();
+        let mut app = App::new(shell_config(home.clone())).unwrap();
+        let mut clipboard = MemoryClipboard::new();
+
+        let result = with_test_home(&home, || {
+            app.handle_command(AppCommand::RequestSave, &mut clipboard)
+        });
+
+        assert!(result.is_ok());
+        assert!(!app.should_quit);
+        let notice = app.clipboard_notice.as_ref().expect("clipboard notice");
+        assert_eq!(notice.text, "Failed to save state");
     }
 
     #[test]
