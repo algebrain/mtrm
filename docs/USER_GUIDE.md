@@ -61,6 +61,7 @@ If the system clipboard is unavailable, `mtrm` still starts and keeps the rest o
 - `Alt+T` creates a new tab.
 - `Alt+Shift+R` renames the current tab.
 - `Alt+Shift+E` renames the current pane.
+- `Shift+F1` opens the help overlay.
 - `Alt+Shift+Left` / `Alt+Shift+Right` / `Alt+Shift+Up` / `Alt+Shift+Down` resize the active pane by one cell.
 - `Alt+,` switches to the previous tab.
 - `Alt+.` switches to the next tab.
@@ -77,6 +78,8 @@ If the system clipboard is unavailable, `mtrm` still starts and keeps the rest o
 - `Shift+PageDown` scrolls the active pane history down by one screen.
 - `Home` sends Home into the active shell.
 - `End` returns to the live bottom of the active pane.
+
+The help overlay shows the same text as `mtrm --help`. It closes with `Esc` and supports scrolling with arrow keys and `PageUp` / `PageDown` when the terminal is too small to show the full text at once.
 
 By default, letter-based shortcuts like `Alt+T`, `Alt+Q`, `Alt+W`, `Alt+X`, `Alt+Shift+R`, `Alt+Shift+E`, and `Alt+Shift+Q` work for Latin letters, which already covers English, Spanish, and Portuguese layouts, and additionally includes Russian, French AZERTY, and Greek layouts.
 The exact set of symbols for letter-based shortcuts is stored in `~/.mtrm/keymap.toml`. If you need another layout, you can add its symbols there.

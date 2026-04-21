@@ -240,12 +240,12 @@ fn renders_centered_modal_overlay() {
             panes: vec![],
             focused: true,
             clipboard_notice: None,
-            modal: Some(ModalView {
+            modal: Some(ModalView::Input(InputModalView {
                 title: "Rename Tab".to_owned(),
                 input: "build".to_owned(),
                 cursor: 2,
                 hint: "Enter apply, Esc cancel".to_owned(),
-            }),
+            })),
         },
         40,
         12,
@@ -260,6 +260,45 @@ fn renders_centered_modal_overlay() {
     assert!(input_line.contains("build"));
     assert!(hint_line.contains("Enter apply"));
     assert_eq!(buffer[(3, 5)].style().bg, Some(Color::Yellow));
+}
+
+#[test]
+fn renders_scrollable_text_modal_overlay() {
+    let terminal = render(
+        &FrameView {
+            tabs: vec![TabView {
+                id: TabId::new(1),
+                title: "main".to_owned(),
+                active: true,
+            }],
+            panes: vec![],
+            focused: true,
+            clipboard_notice: None,
+            modal: Some(ModalView::Text(TextModalView {
+                title: "Help".to_owned(),
+                lines: vec![
+                    "line-0000123456789".to_owned(),
+                    "line-1110123456789".to_owned(),
+                    "line-2220123456789".to_owned(),
+                    "line-3330123456789".to_owned(),
+                ],
+                scroll_row: 1,
+                scroll_col: 5,
+                hint: "Esc close, arrows scroll".to_owned(),
+            })),
+        },
+        18,
+        7,
+    );
+
+    let buffer = terminal.backend().buffer();
+    let all_rows: Vec<String> = (0..7)
+        .map(|y| (0..18).map(|x| buffer[(x, y)].symbol()).collect())
+        .collect();
+    let body_first_line: String = (1..17).map(|x| buffer[(x, 1)].symbol()).collect();
+
+    assert!(all_rows.iter().any(|row| row.contains("Help")));
+    assert!(body_first_line.contains("11101234"), "body was: {body_first_line}");
 }
 
 #[test]

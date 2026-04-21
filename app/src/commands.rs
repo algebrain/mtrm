@@ -77,7 +77,11 @@ impl App {
             }
             AppCommand::SendInterrupt => {
                 self.clear_selection();
-                match self.tabs.send_interrupt_to_active_pane().map_err(tabs_error) {
+                match self
+                    .tabs
+                    .send_interrupt_to_active_pane()
+                    .map_err(tabs_error)
+                {
                     Ok(()) => {
                         self.ui_dirty = true;
                     }

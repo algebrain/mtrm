@@ -52,10 +52,25 @@ pub struct ClipboardNoticeView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModalView {
+pub enum ModalView {
+    Input(InputModalView),
+    Text(TextModalView),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputModalView {
     pub title: String,
     pub input: String,
     pub cursor: usize,
+    pub hint: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextModalView {
+    pub title: String,
+    pub lines: Vec<String>,
+    pub scroll_row: usize,
+    pub scroll_col: usize,
     pub hint: String,
 }
 
@@ -71,12 +86,18 @@ pub fn render_frame<B: Backend>(
             render_pane(frame, pane, full, frame_view.focused);
         }
         if let Some(notice) = &frame_view.clipboard_notice {
-            render_clipboard_notice(frame, frame_view, notice, full, TuiRect {
-                x: full.x,
-                y: full.y,
-                width: full.width,
-                height: TAB_BAR_HEIGHT.min(full.height),
-            });
+            render_clipboard_notice(
+                frame,
+                frame_view,
+                notice,
+                full,
+                TuiRect {
+                    x: full.x,
+                    y: full.y,
+                    width: full.width,
+                    height: TAB_BAR_HEIGHT.min(full.height),
+                },
+            );
         }
         if let Some(modal) = &frame_view.modal {
             render_modal(frame, modal, full);
@@ -105,7 +126,10 @@ fn render_tabs(frame: &mut ratatui::Frame<'_>, frame_view: &FrameView, area: Tui
     let tabs = Tabs::new(titles)
         .select(selected)
         .highlight_style(active_tab_style(frame_view.focused))
-        .divider(Span::styled(TAB_DIVIDER, Style::default().fg(Color::DarkGray)))
+        .divider(Span::styled(
+            TAB_DIVIDER,
+            Style::default().fg(Color::DarkGray),
+        ))
         .padding("", "")
         .style(Style::default().fg(Color::Gray));
 
@@ -116,7 +140,6 @@ fn render_tabs(frame: &mut ratatui::Frame<'_>, frame_view: &FrameView, area: Tui
         height: TAB_BAR_HEIGHT.min(area.height),
     };
     frame.render_widget(tabs, tab_area);
-
 }
 
 fn render_clipboard_notice(
@@ -182,7 +205,8 @@ fn tab_bar_titles_width(frame_view: &FrameView) -> u16 {
         .iter()
         .map(|tab| tab.title.chars().count().min(u16::MAX as usize) as u16)
         .sum();
-    let divider_total = divider_width.saturating_mul(frame_view.tabs.len().saturating_sub(1) as u16);
+    let divider_total =
+        divider_width.saturating_mul(frame_view.tabs.len().saturating_sub(1) as u16);
     titles_width.saturating_add(divider_total)
 }
 
@@ -447,8 +471,19 @@ fn render_cursor_overlay(frame: &mut ratatui::Frame<'_>, pane: &PaneView, area: 
 }
 
 fn render_modal(frame: &mut ratatui::Frame<'_>, modal: &ModalView, full_area: TuiRect) {
-    let width = full_area.width.min(60).max(24);
-    let height = 4.min(full_area.height);
+    match modal {
+        ModalView::Input(modal) => render_input_modal(frame, modal, full_area),
+        ModalView::Text(modal) => render_text_modal(frame, modal, full_area),
+    }
+}
+
+fn render_input_modal(frame: &mut ratatui::Frame<'_>, modal: &InputModalView, full_area: TuiRect) {
+    let width = full_area.width.min(60);
+    let height = full_area.height.min(4);
+    if width == 0 || height == 0 {
+        return;
+    }
+
     let x = full_area.x + full_area.width.saturating_sub(width) / 2;
     let y = full_area.y + full_area.height.saturating_sub(height) / 2;
     let area = TuiRect::new(x, y, width, height);
@@ -457,7 +492,11 @@ fn render_modal(frame: &mut ratatui::Frame<'_>, modal: &ModalView, full_area: Tu
     let block = Block::default()
         .title(modal.title.clone())
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        .border_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
     block.render(area, frame.buffer_mut());
 
     let inner = TuiRect::new(
@@ -484,14 +523,71 @@ fn render_modal(frame: &mut ratatui::Frame<'_>, modal: &ModalView, full_area: Tu
 
     let cursor_col = visible_cursor as u16;
     if cursor_col < input_area.width {
-        let cell = &mut frame.buffer_mut()[(
-            input_area.x.saturating_add(cursor_col),
-            input_area.y,
-        )];
+        let cell = &mut frame.buffer_mut()[(input_area.x.saturating_add(cursor_col), input_area.y)];
         if cell.symbol().trim().is_empty() {
             cell.set_symbol(" ");
         }
         cell.set_style(Style::default().fg(Color::Black).bg(Color::Yellow));
+    }
+}
+
+fn render_text_modal(frame: &mut ratatui::Frame<'_>, modal: &TextModalView, full_area: TuiRect) {
+    let width = full_area.width.min(76);
+    let height = full_area.height.min(20);
+    if width == 0 || height == 0 {
+        return;
+    }
+
+    let x = full_area.x + full_area.width.saturating_sub(width) / 2;
+    let y = full_area.y + full_area.height.saturating_sub(height) / 2;
+    let area = TuiRect::new(x, y, width, height);
+
+    Clear.render(area, frame.buffer_mut());
+    let block = Block::default()
+        .title(modal.title.clone())
+        .borders(Borders::ALL)
+        .border_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+    block.render(area, frame.buffer_mut());
+
+    let inner = TuiRect::new(
+        area.x.saturating_add(1),
+        area.y.saturating_add(1),
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+    );
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let hint_height = if inner.height > 1 { 1 } else { 0 };
+    let body_height = inner.height.saturating_sub(hint_height);
+
+    if body_height > 0 {
+        let body_area = TuiRect::new(inner.x, inner.y, inner.width, body_height);
+        let visible_lines = visible_text_window(
+            &modal.lines,
+            modal.scroll_row,
+            modal.scroll_col,
+            body_area.width as usize,
+            body_area.height as usize,
+        );
+        for (index, line) in visible_lines.into_iter().enumerate() {
+            Paragraph::new(line).render(
+                TuiRect::new(body_area.x, body_area.y + index as u16, body_area.width, 1),
+                frame.buffer_mut(),
+            );
+        }
+    }
+
+    if hint_height > 0 {
+        let hint_area = TuiRect::new(inner.x, inner.y + body_height, inner.width, 1);
+        Paragraph::new(modal.hint.clone())
+            .style(Style::default().fg(Color::DarkGray))
+            .render(hint_area, frame.buffer_mut());
     }
 }
 
@@ -513,6 +609,30 @@ fn visible_input_window(input: &str, cursor: usize, width: usize) -> (String, us
     let end = (start + width).min(chars.len());
     let visible: String = chars[start..end].iter().collect();
     (visible, cursor.saturating_sub(start))
+}
+
+fn visible_text_window(
+    lines: &[String],
+    scroll_row: usize,
+    scroll_col: usize,
+    width: usize,
+    height: usize,
+) -> Vec<String> {
+    if width == 0 || height == 0 {
+        return Vec::new();
+    }
+
+    lines
+        .iter()
+        .skip(scroll_row)
+        .take(height)
+        .map(|line| {
+            line.chars()
+                .skip(scroll_col)
+                .take(width)
+                .collect::<String>()
+        })
+        .collect()
 }
 
 #[cfg(test)]

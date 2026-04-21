@@ -104,6 +104,7 @@ Keybindings:
   Alt+W            Close current tab
   Alt+Shift+R      Rename current tab
   Alt+Shift+E      Rename current pane
+  Shift+F1         Open help overlay
   Alt+Shift+Left   Resize pane left
   Alt+Shift+Right  Resize pane right
   Alt+Shift+Up     Resize pane up

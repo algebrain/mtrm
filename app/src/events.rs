@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use mtrm_clipboard::ClipboardBackend;
 use mtrm_input::{InputAction, map_key_event_with_keymap};
 use ratatui::Terminal;
@@ -8,6 +10,7 @@ use ratatui::backend::Backend;
 
 use crate::app::{App, AppError};
 use crate::cli::{tabs_error, terminal_content_area, terminal_io_error};
+use crate::help::is_toggle_help_overlay_event;
 use crate::rename::{is_start_rename_pane_event, is_start_rename_tab_event};
 
 const ALT_PREFIX_TIMEOUT: Duration = Duration::from_millis(80);
@@ -21,10 +24,19 @@ impl App {
         if self.rename.is_some() {
             return self.handle_rename_key_event(event);
         }
+        if self.help_overlay.is_some() {
+            self.handle_help_key_event(event);
+            return Ok(());
+        }
 
         let Some(event) = self.resolve_alt_prefixed_key_event(event) else {
             return Ok(());
         };
+
+        if is_toggle_help_overlay_event(event) {
+            self.open_help_overlay();
+            return Ok(());
+        }
 
         if is_start_rename_tab_event(event, &self.keymap) {
             self.open_rename_tab_modal();
@@ -60,6 +72,10 @@ impl App {
         event: MouseEvent,
         content_area: mtrm_layout::Rect,
     ) -> Result<(), AppError> {
+        if self.rename.is_some() || self.help_overlay.is_some() {
+            return Ok(());
+        }
+
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 if let Some(tab_id) = self.tab_id_at_mouse_column(content_area.width, event) {

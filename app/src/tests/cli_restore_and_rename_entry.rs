@@ -140,6 +140,7 @@ fn help_text_mentions_keybindings_and_keymap_file() {
     assert!(help.contains("Alt+T            New tab"));
     assert!(help.contains("Alt+Shift+R      Rename current tab"));
     assert!(help.contains("Alt+Shift+E      Rename current pane"));
+    assert!(help.contains("Shift+F1         Open help overlay"));
     assert!(help.contains("Alt+Shift+Left   Resize pane left"));
     assert!(help.contains("Alt+Shift+Right  Resize pane right"));
     assert!(help.contains("Shift+PageUp     Scroll pane history up by one page"));

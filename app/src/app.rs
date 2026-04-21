@@ -8,6 +8,7 @@ use mtrm_tabs::TabManager;
 use thiserror::Error;
 
 use crate::cli::{keymap_error, state_error, tabs_error};
+use crate::help::HelpOverlayState;
 use crate::rename::RenameState;
 use crate::selection::SelectionState;
 
@@ -29,6 +30,7 @@ pub struct App {
     pub(crate) window_focused: bool,
     pub(crate) pending_alt_prefix_started_at: Option<Instant>,
     pub(crate) rename: Option<RenameState>,
+    pub(crate) help_overlay: Option<HelpOverlayState>,
     pub(crate) clipboard_notice: Option<UiNotice>,
     pub(crate) last_content_area: mtrm_layout::Rect,
 }
@@ -75,6 +77,7 @@ impl App {
             window_focused: true,
             pending_alt_prefix_started_at: None,
             rename: None,
+            help_overlay: None,
             clipboard_notice: None,
             last_content_area: DEFAULT_CONTENT_AREA,
         })
@@ -95,6 +98,7 @@ impl App {
                     window_focused: true,
                     pending_alt_prefix_started_at: None,
                     rename: None,
+                    help_overlay: None,
                     clipboard_notice: None,
                     last_content_area: DEFAULT_CONTENT_AREA,
                 })

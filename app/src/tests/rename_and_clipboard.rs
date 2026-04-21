@@ -70,6 +70,56 @@ fn rename_tab_modal_esc_cancels_changes() {
 }
 
 #[test]
+fn shift_f1_opens_help_overlay_and_escape_closes_it() {
+    let temp = tempdir().unwrap();
+    let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+    let mut clipboard = MemoryClipboard::new();
+
+    app.handle_key_event(key_event(KeyCode::F(1), KeyModifiers::SHIFT), &mut clipboard)
+        .unwrap();
+
+    assert!(app.help_overlay.is_some());
+
+    app.handle_key_event(key_event(KeyCode::Esc, KeyModifiers::NONE), &mut clipboard)
+        .unwrap();
+
+    assert!(app.help_overlay.is_none());
+}
+
+#[test]
+fn help_overlay_consumes_plain_text_input_instead_of_sending_it_to_pty() {
+    let temp = tempdir().unwrap();
+    let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+    let mut clipboard = MemoryClipboard::new();
+
+    app.open_help_overlay();
+    app.handle_key_event(key_event(KeyCode::Char('x'), KeyModifiers::NONE), &mut clipboard)
+        .unwrap();
+
+    assert!(app.help_overlay.is_some());
+    assert!(!app.tabs.active_pane_text().unwrap_or_default().contains('x'));
+}
+
+#[test]
+fn help_overlay_arrow_keys_scroll_text() {
+    let temp = tempdir().unwrap();
+    let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+    let mut clipboard = MemoryClipboard::new();
+
+    app.open_help_overlay();
+
+    let initial = app.help_overlay.clone().unwrap();
+    app.handle_key_event(key_event(KeyCode::Down, KeyModifiers::NONE), &mut clipboard)
+        .unwrap();
+    app.handle_key_event(key_event(KeyCode::Right, KeyModifiers::NONE), &mut clipboard)
+        .unwrap();
+
+    let updated = app.help_overlay.clone().unwrap();
+    assert_eq!(updated.scroll_row, initial.scroll_row + 1);
+    assert_eq!(updated.scroll_col, initial.scroll_col + 1);
+}
+
+#[test]
 fn alt_shift_e_opens_rename_pane_modal() {
     let temp = tempdir().unwrap();
     let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
@@ -202,6 +252,7 @@ fn build_frame_view_uses_pane_title_from_snapshot_data() {
         window_focused: true,
         pending_alt_prefix_started_at: None,
         rename: None,
+        help_overlay: None,
         clipboard_notice: None,
         last_content_area: DEFAULT_CONTENT_AREA,
     };

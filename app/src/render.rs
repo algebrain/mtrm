@@ -1,7 +1,10 @@
-use mtrm_ui::{ClipboardNoticeView, FrameView, ModalView, PaneView, TabView};
+use mtrm_ui::{
+    ClipboardNoticeView, FrameView, InputModalView, ModalView, PaneView, TabView, TextModalView,
+};
 
 use crate::app::{App, AppError, NOTICE_TTL};
 use crate::cli::tabs_error;
+use crate::help::help_overlay_lines;
 use crate::rename::RenameTarget;
 
 impl App {
@@ -12,7 +15,8 @@ impl App {
         let snapshot = self.tabs.snapshot().map_err(tabs_error)?;
         let active_tab = snapshot.active_tab;
         let active_pane = self.tabs.active_pane_id();
-        let active_pane_is_scrolled_back = self.tabs.active_pane_is_scrolled_back().unwrap_or(false);
+        let active_pane_is_scrolled_back =
+            self.tabs.active_pane_is_scrolled_back().unwrap_or(false);
         let active_tab_snapshot = snapshot
             .tabs
             .iter()
@@ -48,22 +52,38 @@ impl App {
                         .unwrap_or_else(|_| format!("pane-{}", id.get())),
                     area,
                     active: focused,
-                    lines: self.tabs.pane_lines(id).map_err(tabs_error).unwrap_or_default(),
+                    lines: self
+                        .tabs
+                        .pane_lines(id)
+                        .map_err(tabs_error)
+                        .unwrap_or_default(),
                     selection: self.selection.and_then(|selection| selection.view_for(id)),
                     cursor,
                 }
             })
             .collect();
 
-        let modal = self.rename.as_ref().map(|rename| ModalView {
-            title: match rename.target {
-                RenameTarget::Tab(_) => "Rename Tab".to_owned(),
-                RenameTarget::Pane(_) => "Rename Pane".to_owned(),
-            },
-            input: rename.input.clone(),
-            cursor: rename.cursor,
-            hint: "Enter apply, Esc cancel".to_owned(),
-        });
+        let modal = if let Some(rename) = self.rename.as_ref() {
+            Some(ModalView::Input(InputModalView {
+                title: match rename.target {
+                    RenameTarget::Tab(_) => "Rename Tab".to_owned(),
+                    RenameTarget::Pane(_) => "Rename Pane".to_owned(),
+                },
+                input: rename.input.clone(),
+                cursor: rename.cursor,
+                hint: "Enter apply, Esc cancel".to_owned(),
+            }))
+        } else {
+            self.help_overlay.as_ref().map(|help| {
+                ModalView::Text(TextModalView {
+                    title: "Help".to_owned(),
+                    lines: help_overlay_lines(),
+                    scroll_row: help.scroll_row,
+                    scroll_col: help.scroll_col,
+                    hint: "Esc close, arrows scroll, PgUp/PgDn page".to_owned(),
+                })
+            })
+        };
         let clipboard_notice = self
             .clipboard_notice
             .as_ref()

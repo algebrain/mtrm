@@ -121,6 +121,7 @@ mtrm --debug-log /tmp/mtrm-pty.log
 - `Alt+T`: open a new tab
 - `Alt+Shift+R`: rename the current tab
 - `Alt+Shift+E`: rename the current pane
+- `Shift+F1`: open the help overlay
 - `Alt+Shift+Left` / `Alt+Shift+Right` / `Alt+Shift+Up` / `Alt+Shift+Down`: resize the active pane by one cell
 - `Alt+,`: previous tab
 - `Alt+.`: next tab
@@ -138,6 +139,8 @@ Letter-based shortcuts are configured through `~/.mtrm/keymap.toml`.
 If the system clipboard is unavailable, or if a clipboard read or write fails at runtime, `Ctrl+C` and `Ctrl+V` stay assigned to copy and paste, but `mtrm` shows a short notice inside the UI instead of exiting.
 
 The same short-notice path is also used for other recoverable runtime failures such as state-save errors and user actions that cannot be completed.
+
+The help overlay uses the same text as `mtrm --help`. It opens centered over the UI, closes with `Esc`, and supports scrolling with arrows and `PageUp` / `PageDown` on smaller terminals.
 
 The bundled default keymap already covers:
 

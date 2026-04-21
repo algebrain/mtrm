@@ -14,6 +14,7 @@ mod app;
 mod cli;
 mod commands;
 mod events;
+mod help;
 mod rename;
 mod render;
 mod selection;
