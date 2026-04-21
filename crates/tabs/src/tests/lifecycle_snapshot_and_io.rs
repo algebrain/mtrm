@@ -151,6 +151,32 @@ fn snapshot_reflects_current_state() {
     assert_eq!(snapshot.tabs[0].panes[0].title, "pane-0");
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn snapshot_canonicalizes_alias_temp_path_on_macos() {
+    let temp = tempdir().unwrap();
+    let canonical_dir = fs::canonicalize(temp.path()).unwrap();
+    let canonical_text = canonical_dir.to_string_lossy();
+    let alias_text = canonical_text.replacen("/private/var/", "/var/", 1);
+
+    assert_ne!(
+        alias_text, canonical_text,
+        "test requires a canonical /private/var/... path on macOS"
+    );
+
+    let alias_dir = PathBuf::from(alias_text);
+    assert!(
+        alias_dir.exists(),
+        "alias temp path must exist: {:?}",
+        alias_dir
+    );
+
+    let manager = TabManager::new(&shell_config(alias_dir)).unwrap();
+    let snapshot = manager.snapshot().unwrap();
+
+    assert_eq!(snapshot.tabs[0].panes[0].cwd, canonical_dir);
+}
+
 #[test]
 fn from_snapshot_restores_tabs_and_panes() {
     let temp = tempdir().unwrap();
@@ -259,8 +285,7 @@ fn send_interrupt_is_forwarded_to_active_process() {
         .unwrap();
 
     let output =
-        read_until_contains(&mut manager, "__TABS_INTERRUPT__", Duration::from_secs(3))
-            .unwrap();
+        read_until_contains(&mut manager, "__TABS_INTERRUPT__", Duration::from_secs(3)).unwrap();
     assert!(output.contains("__TABS_INTERRUPT__"));
 }
 

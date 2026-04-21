@@ -14,11 +14,11 @@ use std::time::Instant;
 
 use nix::sys::signal::{self, Signal};
 use nix::sys::termios::{
-    ControlFlags, InputFlags, LocalFlags, OutputFlags, SetArg, SpecialCharacterIndices, Termios,
-    tcsetattr,
+    tcsetattr, ControlFlags, InputFlags, LocalFlags, OutputFlags, SetArg, SpecialCharacterIndices,
+    Termios,
 };
-use nix::unistd::{Pid, getpgid};
-use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
+use nix::unistd::{getpgid, Pid};
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use thiserror::Error;
 
 #[cfg(target_os = "linux")]
@@ -72,6 +72,12 @@ pub struct ShellProcess {
     process_id: u32,
     process_group_id: i32,
     baseline_termios: Option<Termios>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct InterruptContext {
+    foreground_process_group_id: Option<i32>,
+    interrupted_process_group_id: Option<i32>,
 }
 
 impl ShellProcess {
@@ -170,32 +176,11 @@ impl ShellProcess {
     }
 
     pub fn send_interrupt(&mut self) -> Result<(), ProcessError> {
-        let foreground_process_group_id = self.master.process_group_leader().map(|pid| pid as i32);
-        let interrupted_process_group_id =
-            foreground_process_group_id.filter(|pgid| *pgid != self.process_group_id);
-        let interrupted_foreground_job = interrupted_process_group_id.is_some();
-        let result = if foreground_process_group_id == Some(self.process_group_id)
-            || foreground_process_group_id.is_none()
-        {
-            self.writer
-                .write_all(&[0x03])
-                .and_then(|_| self.writer.flush())
-                .map_err(|error| ProcessError::Interrupt(error.to_string()))
-        } else {
-            let process_group_id = foreground_process_group_id.unwrap_or(self.process_group_id);
-            signal::kill(Pid::from_raw(-process_group_id), Signal::SIGINT)
-                .map_err(|error| ProcessError::Interrupt(error.to_string()))
-        };
+        let context = self.interrupt_context();
+        let result = self.deliver_interrupt(context);
         thread::sleep(Duration::from_millis(20));
         if result.is_ok() {
-            let _ = self.restore_baseline_termios_after_interrupt();
-            if interrupted_foreground_job {
-                let _ = self.restore_baseline_termios_via_shell_tty_after_interrupt();
-                let _ = self.cleanup_lingering_tty_processes_after_interrupt(
-                    interrupted_process_group_id.unwrap_or(self.process_group_id),
-                );
-            }
-            self.refresh_baseline_termios_if_shell_foreground();
+            self.finish_interrupt_recovery(context);
         }
         result
     }
@@ -247,6 +232,43 @@ impl ShellProcess {
         apply_termios_to_master(&*self.master, baseline_termios)
             .map_err(|error| ProcessError::Interrupt(error.to_string()))?;
         Ok(())
+    }
+
+    fn interrupt_context(&self) -> InterruptContext {
+        let foreground_process_group_id = self.master.process_group_leader().map(|pid| pid as i32);
+        let interrupted_process_group_id =
+            foreground_process_group_id.filter(|pgid| *pgid != self.process_group_id);
+        InterruptContext {
+            foreground_process_group_id,
+            interrupted_process_group_id,
+        }
+    }
+
+    fn deliver_interrupt(&mut self, context: InterruptContext) -> Result<(), ProcessError> {
+        if context.foreground_process_group_id == Some(self.process_group_id)
+            || context.foreground_process_group_id.is_none()
+        {
+            self.writer
+                .write_all(&[0x03])
+                .and_then(|_| self.writer.flush())
+                .map_err(|error| ProcessError::Interrupt(error.to_string()))
+        } else {
+            let process_group_id = context
+                .foreground_process_group_id
+                .unwrap_or(self.process_group_id);
+            signal::kill(Pid::from_raw(-process_group_id), Signal::SIGINT)
+                .map_err(|error| ProcessError::Interrupt(error.to_string()))
+        }
+    }
+
+    fn finish_interrupt_recovery(&mut self, context: InterruptContext) {
+        let _ = self.restore_baseline_termios_after_interrupt();
+        if let Some(interrupted_process_group_id) = context.interrupted_process_group_id {
+            let _ = self.restore_baseline_termios_via_shell_tty_after_interrupt();
+            let _ =
+                self.cleanup_lingering_tty_processes_after_interrupt(interrupted_process_group_id);
+        }
+        self.refresh_baseline_termios_if_shell_foreground();
     }
 
     fn restore_baseline_termios_after_interrupt(&self) -> Result<(), ProcessError> {

@@ -94,3 +94,35 @@ fn scenario_split_save_restore_preserves_layout_and_cwd() {
 
     assert_eq!(restored.tabs.active_pane_cwd().unwrap(), pane_dir);
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+#[serial]
+fn scenario_split_save_restore_canonicalizes_alias_temp_paths_on_macos() {
+    let temp = tempdir().unwrap();
+    let home = fs::canonicalize(temp.path()).unwrap();
+    let canonical_text = home.to_string_lossy();
+    let alias_text = canonical_text.replacen("/private/var/", "/var/", 1);
+
+    assert_ne!(
+        alias_text, canonical_text,
+        "test requires a canonical /private/var/... path on macOS"
+    );
+
+    let alias_home = PathBuf::from(alias_text);
+    assert!(
+        alias_home.exists(),
+        "alias temp path must exist: {:?}",
+        alias_home
+    );
+
+    let mut app = App::new(shell_config(alias_home.clone())).unwrap();
+
+    with_test_home(&alias_home, || app.save()).unwrap();
+    let restored = with_test_home(&alias_home, || {
+        App::restore_or_new(shell_config(alias_home.clone()))
+    })
+    .unwrap();
+
+    assert_eq!(restored.tabs.active_pane_cwd().unwrap(), home);
+}
