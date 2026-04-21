@@ -1,8 +1,6 @@
 use mtrm_core::{FocusMoveDirection, PaneId, ResizeDirection, SplitDirection};
 
-use crate::{
-    DEFAULT_CHILD_WEIGHT, LayoutNode, Rect, ResizeTarget, SplitChild,
-};
+use crate::{DEFAULT_CHILD_WEIGHT, LayoutNode, Rect, ResizeTarget, SplitChild};
 
 pub(crate) fn normalize(node: LayoutNode) -> LayoutNode {
     match node {
@@ -77,7 +75,9 @@ fn collect_resize_target(
             children,
         } => {
             let child_rects = split_rects(area, *split_direction, children);
-            let Some(child_index) = children.iter().position(|child| child.node.contains(focused))
+            let Some(child_index) = children
+                .iter()
+                .position(|child| child.node.contains(focused))
             else {
                 return false;
             };
@@ -163,7 +163,11 @@ pub(crate) fn resize_axis_extent(rect: Rect, direction: ResizeDirection) -> u16 
     }
 }
 
-pub(crate) fn split_rects(area: Rect, direction: SplitDirection, children: &[SplitChild]) -> Vec<Rect> {
+pub(crate) fn split_rects(
+    area: Rect,
+    direction: SplitDirection,
+    children: &[SplitChild],
+) -> Vec<Rect> {
     let weights: Vec<u16> = children.iter().map(|child| child.weight).collect();
     match direction {
         SplitDirection::Horizontal => {
@@ -229,7 +233,11 @@ fn distribute_extent(total: u16, weights: &[u16]) -> Vec<u16> {
     assigned
 }
 
-pub(crate) fn is_in_direction(current: Rect, candidate: Rect, direction: FocusMoveDirection) -> bool {
+pub(crate) fn is_in_direction(
+    current: Rect,
+    candidate: Rect,
+    direction: FocusMoveDirection,
+) -> bool {
     match direction {
         FocusMoveDirection::Left => {
             candidate_right(candidate) <= current.x && overlaps_vertically(current, candidate)

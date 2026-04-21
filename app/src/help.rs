@@ -1,4 +1,7 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
+use mtrm_platform_keys::{
+    PlatformKeyProfile, current_platform_key_profile, key_bindings_for_profile,
+};
 
 use crate::app::App;
 use crate::cli::help_text;
@@ -20,9 +23,18 @@ impl App {
     }
 
     pub(crate) fn handle_help_key_event(&mut self, event: KeyEvent) {
+        self.handle_help_key_event_for_profile(event, current_platform_key_profile());
+    }
+
+    pub(crate) fn handle_help_key_event_for_profile(
+        &mut self,
+        event: KeyEvent,
+        profile: PlatformKeyProfile,
+    ) {
         let page_rows = self.help_body_rows();
         let max_row = max_help_scroll_row(page_rows);
         let max_col = max_help_scroll_col();
+        let bindings = key_bindings_for_profile(profile);
 
         let Some(state) = &mut self.help_overlay else {
             return;
@@ -67,7 +79,7 @@ impl App {
                 state.scroll_col = max_col;
                 self.ui_dirty = true;
             }
-            KeyCode::F(1) if event.modifiers == KeyModifiers::SHIFT => {
+            _ if bindings.open_help.matches(event) => {
                 self.help_overlay = None;
                 self.ui_dirty = true;
             }
@@ -85,7 +97,14 @@ impl App {
 }
 
 pub(crate) fn is_toggle_help_overlay_event(event: KeyEvent) -> bool {
-    event.modifiers == KeyModifiers::SHIFT && matches!(event.code, KeyCode::F(1))
+    is_toggle_help_overlay_event_for_profile(event, current_platform_key_profile())
+}
+
+pub(crate) fn is_toggle_help_overlay_event_for_profile(
+    event: KeyEvent,
+    profile: PlatformKeyProfile,
+) -> bool {
+    key_bindings_for_profile(profile).open_help.matches(event)
 }
 
 pub(crate) fn help_overlay_lines() -> Vec<String> {

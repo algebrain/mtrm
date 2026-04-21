@@ -14,11 +14,11 @@ use std::time::Instant;
 
 use nix::sys::signal::{self, Signal};
 use nix::sys::termios::{
-    tcsetattr, ControlFlags, InputFlags, LocalFlags, OutputFlags, SetArg, SpecialCharacterIndices,
-    Termios,
+    ControlFlags, InputFlags, LocalFlags, OutputFlags, SetArg, SpecialCharacterIndices, Termios,
+    tcsetattr,
 };
-use nix::unistd::{getpgid, Pid};
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use nix::unistd::{Pid, getpgid};
+use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use thiserror::Error;
 
 #[cfg(target_os = "linux")]

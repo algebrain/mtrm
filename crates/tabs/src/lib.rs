@@ -296,7 +296,10 @@ impl TabManager {
 
     pub fn focus_pane(&mut self, pane_id: PaneId) -> Result<(), TabsError> {
         let tab = self.active_tab_mut();
-        tab.runtime.layout.focus_pane(pane_id).map_err(TabsError::Layout)
+        tab.runtime
+            .layout
+            .focus_pane(pane_id)
+            .map_err(TabsError::Layout)
     }
 
     pub fn write_to_active_pane(&mut self, bytes: &[u8]) -> Result<(), TabsError> {
@@ -508,7 +511,11 @@ struct PaneEntry {
     title: String,
 }
 
-fn spawn_shell(shell: &ShellProcessConfig, cwd: PathBuf, title: String) -> Result<PaneEntry, TabsError> {
+fn spawn_shell(
+    shell: &ShellProcessConfig,
+    cwd: PathBuf,
+    title: String,
+) -> Result<PaneEntry, TabsError> {
     let config = ShellProcessConfig {
         program: shell.program.clone(),
         args: shell.args.clone(),

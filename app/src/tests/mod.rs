@@ -6,6 +6,7 @@ use crossterm::event::{
 use mtrm_clipboard::{ClipboardBackend, ClipboardError, MemoryClipboard, UnavailableClipboard};
 use mtrm_core::{AppCommand, FocusMoveDirection, LayoutCommand, TabCommand};
 use mtrm_keymap::Keymap;
+use mtrm_platform_keys::PlatformKeyProfile;
 use mtrm_process::ShellProcessConfig;
 use mtrm_state::save_state;
 use ratatui::backend::TestBackend;
@@ -17,8 +18,11 @@ use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
 use crate::app::DEFAULT_CONTENT_AREA;
-use crate::cli::{CliAction, help_text};
-use crate::rename::{RenameState, RenameTarget};
+use crate::cli::{CliAction, help_text, help_text_for_profile};
+use crate::rename::{
+    RenameState, RenameTarget, is_start_rename_pane_event_for_profile,
+    is_start_rename_tab_event_for_profile,
+};
 use crate::selection::{SelectionPoint, SelectionState, pane_content_rect, tab_id_at_position};
 
 fn shell_config(initial_cwd: PathBuf) -> ShellProcessConfig {

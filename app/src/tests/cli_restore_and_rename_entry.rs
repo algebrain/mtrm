@@ -147,6 +147,17 @@ fn help_text_mentions_keybindings_and_keymap_file() {
     assert!(help.contains("~/.mtrm/keymap.toml"));
 }
 
+#[test]
+fn help_text_for_macos_profile_mentions_macos_bindings() {
+    let help = help_text_for_profile(PlatformKeyProfile::MacOs);
+
+    assert!(help.contains("Ctrl+X           Send interrupt to active process"));
+    assert!(help.contains("Ctrl+T           New tab"));
+    assert!(help.contains("Ctrl+Shift+R     Rename current tab"));
+    assert!(help.contains("Ctrl+/           Open help overlay"));
+    assert!(help.contains("Ctrl+Shift+Left  Resize pane left"));
+}
+
 fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
     MouseEvent {
         kind,

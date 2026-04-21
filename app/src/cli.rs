@@ -3,6 +3,9 @@ use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
 use mtrm_clipboard::{ClipboardBackend, ClipboardError, SystemClipboard, UnavailableClipboard};
+use mtrm_platform_keys::{
+    PlatformKeyProfile, current_platform_key_profile, key_bindings_for_profile,
+};
 use mtrm_process::ShellProcessConfig;
 use ratatui::Terminal;
 use ratatui::backend::Backend;
@@ -75,6 +78,11 @@ pub(crate) fn print_help() {
 }
 
 pub(crate) fn help_text() -> String {
+    help_text_for_profile(current_platform_key_profile())
+}
+
+pub(crate) fn help_text_for_profile(profile: PlatformKeyProfile) -> String {
+    let bindings = key_bindings_for_profile(profile);
     "\
 mtrm
 
@@ -94,26 +102,29 @@ Options:
 Keybindings:
   Ctrl+C           Copy selection
   Ctrl+V           Paste from system clipboard
-  Alt+X            Send interrupt to active process
-  Alt+-            Split active pane left/right
-  Alt+=            Split active pane top/bottom
-  Alt+Q            Close active pane
-  Alt+T            New tab
-  Alt+,            Previous tab
-  Alt+.            Next tab
-  Alt+W            Close current tab
-  Alt+Shift+R      Rename current tab
-  Alt+Shift+E      Rename current pane
-  Shift+F1         Open help overlay
-  Alt+Shift+Left   Resize pane left
-  Alt+Shift+Right  Resize pane right
-  Alt+Shift+Up     Resize pane up
-  Alt+Shift+Down   Resize pane down
-  Alt+Shift+Q      Save state and quit
-  Alt+Left         Focus pane left
-  Alt+Right        Focus pane right
-  Alt+Up           Focus pane up
-  Alt+Down         Focus pane down
+"
+    .to_owned()
+        + &format!(
+            "  {:<16} Send interrupt to active process
+  {:<16} Split active pane left/right
+  {:<16} Split active pane top/bottom
+  {:<16} Close active pane
+  {:<16} New tab
+  {:<16} Previous tab
+  {:<16} Next tab
+  {:<16} Close current tab
+  {:<16} Rename current tab
+  {:<16} Rename current pane
+  {:<16} Open help overlay
+  {:<16} Resize pane left
+  {:<16} Resize pane right
+  {:<16} Resize pane up
+  {:<16} Resize pane down
+  {:<16} Save state and quit
+  {:<16} Focus pane left
+  {:<16} Focus pane right
+  {:<16} Focus pane up
+  {:<16} Focus pane down
   Shift+Up         Scroll pane history up
   Shift+Down       Scroll pane history down
   Shift+PageUp     Scroll pane history up by one page
@@ -121,10 +132,30 @@ Keybindings:
   End              Return scrollback to live bottom
 
 Notes:
-  Letter-based Alt shortcuts come from ~/.mtrm/keymap.toml.
+  Letter-based command keys come from ~/.mtrm/keymap.toml.
   Arrow and scrollback bindings are built in.
-"
-    .to_owned()
+",
+            bindings.interrupt.label,
+            bindings.split_vertical.label,
+            bindings.split_horizontal.label,
+            bindings.close_pane.label,
+            bindings.new_tab.label,
+            bindings.previous_tab.label,
+            bindings.next_tab.label,
+            bindings.close_tab.label,
+            bindings.rename_tab.label,
+            bindings.rename_pane.label,
+            bindings.open_help.label,
+            bindings.resize_left.label,
+            bindings.resize_right.label,
+            bindings.resize_up.label,
+            bindings.resize_down.label,
+            bindings.quit.label,
+            bindings.focus_left.label,
+            bindings.focus_right.label,
+            bindings.focus_up.label,
+            bindings.focus_down.label,
+        )
 }
 
 pub(crate) fn cli_version_string() -> String {

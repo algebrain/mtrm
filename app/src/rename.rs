@@ -1,5 +1,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use mtrm_keymap::Keymap;
+use mtrm_platform_keys::{
+    PlatformKeyProfile, current_platform_key_profile, key_bindings_for_profile,
+};
 
 use crate::app::{App, AppError};
 use crate::cli::tabs_error;
@@ -18,13 +21,31 @@ pub(crate) struct RenameState {
 }
 
 pub(crate) fn is_start_rename_tab_event(event: KeyEvent, keymap: &Keymap) -> bool {
-    event.modifiers == (KeyModifiers::ALT | KeyModifiers::SHIFT)
-        && matches!(event.code, KeyCode::Char(ch) if keymap.matches_rename_tab(ch))
+    is_start_rename_tab_event_for_profile(event, keymap, current_platform_key_profile())
 }
 
 pub(crate) fn is_start_rename_pane_event(event: KeyEvent, keymap: &Keymap) -> bool {
-    event.modifiers == (KeyModifiers::ALT | KeyModifiers::SHIFT)
-        && matches!(event.code, KeyCode::Char(ch) if keymap.matches_rename_pane(ch))
+    is_start_rename_pane_event_for_profile(event, keymap, current_platform_key_profile())
+}
+
+pub(crate) fn is_start_rename_tab_event_for_profile(
+    event: KeyEvent,
+    keymap: &Keymap,
+    profile: PlatformKeyProfile,
+) -> bool {
+    key_bindings_for_profile(profile)
+        .rename_tab
+        .matches(event, |ch| keymap.matches_rename_tab(ch))
+}
+
+pub(crate) fn is_start_rename_pane_event_for_profile(
+    event: KeyEvent,
+    keymap: &Keymap,
+    profile: PlatformKeyProfile,
+) -> bool {
+    key_bindings_for_profile(profile)
+        .rename_pane
+        .matches(event, |ch| keymap.matches_rename_pane(ch))
 }
 
 fn remove_char_at(input: &str, index: usize) -> String {

@@ -15,7 +15,11 @@ fn current_dir_returns_canonical_temp_path_on_macos() {
     );
 
     let alias_dir = PathBuf::from(alias_text);
-    assert!(alias_dir.exists(), "alias temp path must exist: {:?}", alias_dir);
+    assert!(
+        alias_dir.exists(),
+        "alias temp path must exist: {:?}",
+        alias_dir
+    );
 
     let mut process = ShellProcess::spawn(shell_config(alias_dir.clone())).unwrap();
 
@@ -39,7 +43,11 @@ fn current_dir_tracks_canonical_working_directory_after_cd_on_macos() {
 
     let alias_root = PathBuf::from(alias_text);
     let alias_next = alias_root.join("next");
-    assert!(alias_next.exists(), "alias path must exist: {:?}", alias_next);
+    assert!(
+        alias_next.exists(),
+        "alias path must exist: {:?}",
+        alias_next
+    );
 
     let mut process = ShellProcess::spawn(shell_config(alias_root)).unwrap();
     process
@@ -52,7 +60,11 @@ fn current_dir_tracks_canonical_working_directory_after_cd_on_macos() {
             .map(|cwd| cwd == next_dir)
             .unwrap_or(false)
     });
-    assert!(changed, "shell cwd did not change to canonical {:?}", next_dir);
+    assert!(
+        changed,
+        "shell cwd did not change to canonical {:?}",
+        next_dir
+    );
 }
 
 #[test]

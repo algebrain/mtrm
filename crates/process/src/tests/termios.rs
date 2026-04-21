@@ -135,8 +135,9 @@ fn interactive_bash_prompt_time_control_chars_match_shell_termios() {
         .baseline_termios
         .clone()
         .expect("shell prompt baseline termios must be available");
-    let expected_intr =
-        control_char_to_stty_notation(baseline.control_chars[SpecialCharacterIndices::VINTR as usize]);
+    let expected_intr = control_char_to_stty_notation(
+        baseline.control_chars[SpecialCharacterIndices::VINTR as usize],
+    );
     let expected_erase = control_char_to_stty_notation(
         baseline.control_chars[SpecialCharacterIndices::VERASE as usize],
     );

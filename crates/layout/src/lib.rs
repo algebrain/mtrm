@@ -198,11 +198,8 @@ impl LayoutTree {
             return Ok(false);
         };
 
-        let Some((_, _, shrinks, grows)) = resolve_resize_operation(
-            target.child_index,
-            target.child_rects.len(),
-            direction,
-        )
+        let Some((_, _, shrinks, grows)) =
+            resolve_resize_operation(target.child_index, target.child_rects.len(), direction)
         else {
             return Ok(false);
         };
@@ -284,7 +281,9 @@ impl LayoutNode {
     fn contains(&self, pane_id: PaneId) -> bool {
         match self {
             Self::Pane(id) => *id == pane_id,
-            Self::Split { children, .. } => children.iter().any(|child| child.node.contains(pane_id)),
+            Self::Split { children, .. } => {
+                children.iter().any(|child| child.node.contains(pane_id))
+            }
         }
     }
 
@@ -299,10 +298,7 @@ impl LayoutNode {
                 let old_pane = *id;
                 *self = Self::Split {
                     direction,
-                    children: vec![
-                        SplitChild::pane(old_pane),
-                        SplitChild::pane(new_pane),
-                    ],
+                    children: vec![SplitChild::pane(old_pane), SplitChild::pane(new_pane)],
                 };
                 true
             }
@@ -434,9 +430,9 @@ impl LayoutNode {
     fn first_pane_id(&self) -> Option<PaneId> {
         match self {
             Self::Pane(id) => Some(*id),
-            Self::Split { children, .. } => children
-                .iter()
-                .find_map(|child| child.node.first_pane_id()),
+            Self::Split { children, .. } => {
+                children.iter().find_map(|child| child.node.first_pane_id())
+            }
         }
     }
 

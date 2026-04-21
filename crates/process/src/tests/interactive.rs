@@ -27,8 +27,8 @@ fn send_interrupt_reaches_foreground_job_in_interactive_bash() {
         .write_all(b"printf '__INTERRUPTED_BASH__\\n'\n")
         .unwrap();
 
-    let output = read_until_contains(&mut process, "__INTERRUPTED_BASH__", Duration::from_secs(3))
-        .unwrap();
+    let output =
+        read_until_contains(&mut process, "__INTERRUPTED_BASH__", Duration::from_secs(3)).unwrap();
     assert!(output.contains("__INTERRUPTED_BASH__"));
 }
 
@@ -39,7 +39,9 @@ fn send_interrupt_restores_shell_after_foreground_job_leaves_tty_raw() {
     let config = interactive_bash_config(temp.path().to_path_buf());
     let mut process = ShellProcess::spawn(config).unwrap();
     let _ = read_until_contains(&mut process, "__MTRM_PROMPT__", Duration::from_secs(5)).unwrap();
-    process.write_all(b"sh -c 'stty raw -echo; sleep 5'\n").unwrap();
+    process
+        .write_all(b"sh -c 'stty raw -echo; sleep 5'\n")
+        .unwrap();
     process.send_interrupt().unwrap();
 
     let _ = wait_for_prompt(&mut process).unwrap();

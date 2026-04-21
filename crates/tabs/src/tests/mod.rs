@@ -65,11 +65,7 @@ fn with_env_var_removed<T>(name: &str, f: impl FnOnce() -> T) -> T {
     result
 }
 
-fn find_visible_text_position(
-    manager: &TabManager,
-    pane_id: PaneId,
-    needle: &str,
-) -> (u16, u16) {
+fn find_visible_text_position(manager: &TabManager, pane_id: PaneId, needle: &str) -> (u16, u16) {
     let text = manager.pane_text(pane_id).unwrap();
     for (row, line) in text.split('\n').enumerate() {
         if let Some(col) = line.find(needle) {

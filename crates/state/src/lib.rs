@@ -198,8 +198,8 @@ fn serialize_yaml_state(snapshot: &SessionSnapshot) -> Result<String, StateError
 }
 
 fn deserialize_yaml_state(content: &str) -> Result<SessionSnapshot, StateError> {
-    let persisted: PersistedStateFile =
-        serde_yaml::from_str(content).map_err(|error| StateError::Deserialize(error.to_string()))?;
+    let persisted: PersistedStateFile = serde_yaml::from_str(content)
+        .map_err(|error| StateError::Deserialize(error.to_string()))?;
     persisted.into_snapshot()
 }
 

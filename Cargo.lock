@@ -945,6 +945,7 @@ dependencies = [
  "mtrm-input",
  "mtrm-keymap",
  "mtrm-layout",
+ "mtrm-platform-keys",
  "mtrm-process",
  "mtrm-session",
  "mtrm-state",
@@ -988,6 +989,7 @@ dependencies = [
  "crossterm 0.28.1",
  "mtrm-core",
  "mtrm-keymap",
+ "mtrm-platform-keys",
 ]
 
 [[package]]
@@ -1009,6 +1011,13 @@ dependencies = [
  "proptest",
  "serde",
  "serde_yaml",
+]
+
+[[package]]
+name = "mtrm-platform-keys"
+version = "0.1.0"
+dependencies = [
+ "crossterm 0.28.1",
 ]
 
 [[package]]

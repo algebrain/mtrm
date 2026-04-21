@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn alt_screen_bytes(payload: &[u8]) -> Vec<u8> {

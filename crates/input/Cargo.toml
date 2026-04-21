@@ -9,4 +9,5 @@ path = "src/lib.rs"
 [dependencies]
 mtrm-core = { path = "../core" }
 mtrm-keymap = { path = "../keymap" }
+mtrm-platform-keys = { path = "../platform_keys" }
 crossterm = "0.28"

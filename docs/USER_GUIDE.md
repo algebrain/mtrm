@@ -52,8 +52,13 @@ If the system clipboard is unavailable, `mtrm` still starts and keeps the rest o
 
 ## Keybindings
 
+Shared on every current platform:
+
 - `Ctrl+C` copies the selected text from the active pane into the system clipboard.
 - `Ctrl+V` pastes text from the system clipboard into the active pane.
+
+Linux profile:
+
 - `Alt+X` sends `SIGINT` to the active process.
 - `Alt+-` splits the active pane into left and right.
 - `Alt+=` splits the active pane into top and bottom.
@@ -67,11 +72,28 @@ If the system clipboard is unavailable, `mtrm` still starts and keeps the rest o
 - `Alt+.` switches to the next tab.
 - `Alt+W` closes the current tab if it is not the last one.
 - `Alt+Shift+Q` saves state and quits `mtrm`.
+- `Alt+Left` / `Alt+Right` / `Alt+Up` / `Alt+Down` move focus between panes.
+
+macOS profile:
+
+- `Ctrl+X` sends `SIGINT` to the active process.
+- `Ctrl+\` splits the active pane into left and right.
+- `Ctrl+Shift+\` splits the active pane into top and bottom.
+- `Ctrl+Q` closes the active pane if it is not the last pane in the tab.
+- `Ctrl+T` creates a new tab.
+- `Ctrl+Shift+R` renames the current tab.
+- `Ctrl+Shift+E` renames the current pane.
+- `Ctrl+/` opens the help overlay.
+- `Ctrl+Shift+Left` / `Ctrl+Shift+Right` / `Ctrl+Shift+Up` / `Ctrl+Shift+Down` resize the active pane by one cell.
+- `Ctrl+,` switches to the previous tab.
+- `Ctrl+.` switches to the next tab.
+- `Ctrl+W` closes the current tab if it is not the last one.
+- `Ctrl+Shift+Q` saves state and quits `mtrm`.
+- `Ctrl+Left` / `Ctrl+Right` / `Ctrl+Up` / `Ctrl+Down` move focus between panes.
+
+Shared navigation and scrollback:
+
 - `Left` / `Right` / `Up` / `Down` send arrows into the active shell.
-- `Alt+Left` moves focus left.
-- `Alt+Right` moves focus right.
-- `Alt+Up` moves focus up.
-- `Alt+Down` moves focus down.
 - `Shift+Up` scrolls the active pane history up by one line.
 - `Shift+Down` scrolls the active pane history down by one line.
 - `Shift+PageUp` scrolls the active pane history up by one screen.
@@ -79,10 +101,10 @@ If the system clipboard is unavailable, `mtrm` still starts and keeps the rest o
 - `Home` sends Home into the active shell.
 - `End` returns to the live bottom of the active pane.
 
-The help overlay shows the same text as `mtrm --help`. It closes with `Esc` and supports scrolling with arrow keys and `PageUp` / `PageDown` when the terminal is too small to show the full text at once.
+The help overlay shows the same text as `mtrm --help`. It uses the built-in shortcut of the current platform, closes with `Esc`, and supports scrolling with arrow keys and `PageUp` / `PageDown` when the terminal is too small to show the full text at once.
 
-By default, letter-based shortcuts like `Alt+T`, `Alt+Q`, `Alt+W`, `Alt+X`, `Alt+Shift+R`, `Alt+Shift+E`, and `Alt+Shift+Q` work for Latin letters, which already covers English, Spanish, and Portuguese layouts, and additionally includes Russian, French AZERTY, and Greek layouts.
-The exact set of symbols for letter-based shortcuts is stored in `~/.mtrm/keymap.toml`. If you need another layout, you can add its symbols there.
+By default, the keymap covers Latin letters, which already covers English, Spanish, and Portuguese layouts, and additionally includes Russian, French AZERTY, and Greek layouts for letter-based commands.
+The exact set of symbols for letter-based command keys is stored in `~/.mtrm/keymap.toml`. If you need another layout, you can add its symbols there.
 
 ## Scrollback
 

@@ -88,6 +88,40 @@ fn shift_f1_opens_help_overlay_and_escape_closes_it() {
 }
 
 #[test]
+fn macos_profile_ctrl_slash_toggles_help_overlay() {
+    let temp = tempdir().unwrap();
+    let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();
+
+    assert!(crate::help::is_toggle_help_overlay_event_for_profile(
+        key_event(KeyCode::Char('/'), KeyModifiers::CONTROL),
+        PlatformKeyProfile::MacOs
+    ));
+
+    app.open_help_overlay();
+    app.handle_help_key_event_for_profile(
+        key_event(KeyCode::Char('/'), KeyModifiers::CONTROL),
+        PlatformKeyProfile::MacOs,
+    );
+    assert!(app.help_overlay.is_none());
+}
+
+#[test]
+fn macos_profile_rename_shortcuts_are_detected() {
+    let keymap = Keymap::default();
+
+    assert!(is_start_rename_tab_event_for_profile(
+        key_event(KeyCode::Char('R'), KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+        &keymap,
+        PlatformKeyProfile::MacOs
+    ));
+    assert!(is_start_rename_pane_event_for_profile(
+        key_event(KeyCode::Char('E'), KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+        &keymap,
+        PlatformKeyProfile::MacOs
+    ));
+}
+
+#[test]
 fn help_overlay_consumes_plain_text_input_instead_of_sending_it_to_pty() {
     let temp = tempdir().unwrap();
     let mut app = App::new(shell_config(temp.path().to_path_buf())).unwrap();

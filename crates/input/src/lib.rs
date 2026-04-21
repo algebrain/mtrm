@@ -3,19 +3,15 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use mtrm_core::{AppCommand, ClipboardCommand, FocusMoveDirection, LayoutCommand, ResizeDirection};
 use mtrm_keymap::Keymap;
+use mtrm_platform_keys::{
+    PlatformKeyProfile, current_platform_key_profile, key_bindings_for_profile,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputAction {
     Command(AppCommand),
     PtyBytes(Vec<u8>),
     Ignore,
-}
-
-fn is_one_of(code: KeyCode, chars: &[char]) -> bool {
-    match code {
-        KeyCode::Char(ch) => chars.contains(&ch),
-        _ => false,
-    }
 }
 
 fn matches_char(code: KeyCode, matcher: impl FnOnce(char) -> bool) -> bool {
@@ -71,10 +67,110 @@ fn function_key_bytes(number: u8) -> Option<Vec<u8>> {
 }
 
 pub fn map_key_event(event: KeyEvent) -> InputAction {
-    map_key_event_with_keymap(event, &Keymap::default())
+    map_key_event_with_profile(event, &Keymap::default(), current_platform_key_profile())
 }
 
 pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputAction {
+    map_key_event_with_profile(event, keymap, current_platform_key_profile())
+}
+
+pub fn map_key_event_with_profile(
+    event: KeyEvent,
+    keymap: &Keymap,
+    profile: PlatformKeyProfile,
+) -> InputAction {
+    let bindings = key_bindings_for_profile(profile);
+
+    if bindings
+        .interrupt
+        .matches(event, |ch| keymap.matches_interrupt(ch))
+    {
+        return InputAction::Command(AppCommand::SendInterrupt);
+    }
+    if bindings.split_vertical.matches(event) {
+        return InputAction::Command(AppCommand::Layout(LayoutCommand::SplitFocused(
+            mtrm_core::SplitDirection::Vertical,
+        )));
+    }
+    if bindings.split_horizontal.matches(event) {
+        return InputAction::Command(AppCommand::Layout(LayoutCommand::SplitFocused(
+            mtrm_core::SplitDirection::Horizontal,
+        )));
+    }
+    if bindings
+        .close_pane
+        .matches(event, |ch| keymap.matches_close_pane(ch))
+    {
+        return InputAction::Command(AppCommand::Layout(LayoutCommand::CloseFocusedPane));
+    }
+    if bindings
+        .new_tab
+        .matches(event, |ch| keymap.matches_new_tab(ch))
+    {
+        return InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::NewTab));
+    }
+    if bindings
+        .previous_tab
+        .matches(event, |ch| keymap.matches_previous_tab(ch))
+    {
+        return InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::PreviousTab));
+    }
+    if bindings
+        .next_tab
+        .matches(event, |ch| keymap.matches_next_tab(ch))
+    {
+        return InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::NextTab));
+    }
+    if bindings
+        .close_tab
+        .matches(event, |ch| keymap.matches_close_tab(ch))
+    {
+        return InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::CloseCurrentTab));
+    }
+    if bindings.focus_left.matches(event) {
+        return InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
+            FocusMoveDirection::Left,
+        )));
+    }
+    if bindings.focus_right.matches(event) {
+        return InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
+            FocusMoveDirection::Right,
+        )));
+    }
+    if bindings.focus_up.matches(event) {
+        return InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
+            FocusMoveDirection::Up,
+        )));
+    }
+    if bindings.focus_down.matches(event) {
+        return InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
+            FocusMoveDirection::Down,
+        )));
+    }
+    if bindings.resize_left.matches(event) {
+        return InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
+            ResizeDirection::Left,
+        )));
+    }
+    if bindings.resize_right.matches(event) {
+        return InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
+            ResizeDirection::Right,
+        )));
+    }
+    if bindings.resize_up.matches(event) {
+        return InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
+            ResizeDirection::Up,
+        )));
+    }
+    if bindings.resize_down.matches(event) {
+        return InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
+            ResizeDirection::Down,
+        )));
+    }
+    if bindings.quit.matches(event, |ch| keymap.matches_quit(ch)) {
+        return InputAction::Command(AppCommand::Quit);
+    }
+
     if event.modifiers == KeyModifiers::CONTROL {
         return if matches_char(event.code, |ch| keymap.matches_copy(ch)) {
             InputAction::Command(AppCommand::Clipboard(ClipboardCommand::CopySelection))
@@ -90,43 +186,22 @@ pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputActio
     }
 
     if event.modifiers == KeyModifiers::ALT {
-        return if matches_char(event.code, |ch| keymap.matches_interrupt(ch)) {
+        return if bindings.interrupt.modifiers == KeyModifiers::ALT
+            && matches_char(event.code, |ch| keymap.matches_interrupt(ch))
+        {
             InputAction::Command(AppCommand::SendInterrupt)
-        } else if is_one_of(event.code, &['-', '_']) {
-            InputAction::Command(AppCommand::Layout(LayoutCommand::SplitFocused(
-                mtrm_core::SplitDirection::Vertical,
-            )))
-        } else if is_one_of(event.code, &['=', '+']) {
-            InputAction::Command(AppCommand::Layout(LayoutCommand::SplitFocused(
-                mtrm_core::SplitDirection::Horizontal,
-            )))
-        } else if matches_char(event.code, |ch| keymap.matches_close_pane(ch)) {
-            InputAction::Command(AppCommand::Layout(LayoutCommand::CloseFocusedPane))
-        } else if matches_char(event.code, |ch| keymap.matches_new_tab(ch)) {
-            InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::NewTab))
-        } else if matches_char(event.code, |ch| keymap.matches_previous_tab(ch)) {
-            InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::PreviousTab))
-        } else if matches_char(event.code, |ch| keymap.matches_next_tab(ch)) {
-            InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::NextTab))
-        } else if matches_char(event.code, |ch| keymap.matches_close_tab(ch)) {
-            InputAction::Command(AppCommand::Tabs(mtrm_core::TabCommand::CloseCurrentTab))
         } else {
             match event.code {
-                KeyCode::Left => InputAction::Command(AppCommand::Layout(
-                    LayoutCommand::MoveFocus(FocusMoveDirection::Left),
-                )),
-                KeyCode::Right => InputAction::Command(AppCommand::Layout(
-                    LayoutCommand::MoveFocus(FocusMoveDirection::Right),
-                )),
-                KeyCode::Up => InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
-                    FocusMoveDirection::Up,
-                ))),
-                KeyCode::Down => InputAction::Command(AppCommand::Layout(
-                    LayoutCommand::MoveFocus(FocusMoveDirection::Down),
-                )),
                 KeyCode::Char(ch) => InputAction::PtyBytes(alt_char_bytes(ch)),
                 _ => InputAction::Ignore,
             }
+        };
+    }
+
+    if event.modifiers == (KeyModifiers::ALT | KeyModifiers::SHIFT) {
+        return match event.code {
+            KeyCode::Char(ch) => InputAction::PtyBytes(alt_char_bytes(ch)),
+            _ => InputAction::Ignore,
         };
     }
 
@@ -151,28 +226,6 @@ pub fn map_key_event_with_keymap(event: KeyEvent, keymap: &Keymap) -> InputActio
 
     if event.modifiers == KeyModifiers::NONE && matches!(event.code, KeyCode::End) {
         return InputAction::Command(AppCommand::Layout(LayoutCommand::ScrollToBottom));
-    }
-
-    if event.modifiers == (KeyModifiers::ALT | KeyModifiers::SHIFT) {
-        return match event.code {
-            KeyCode::Left => InputAction::Command(AppCommand::Layout(
-                LayoutCommand::ResizeFocused(ResizeDirection::Left),
-            )),
-            KeyCode::Right => InputAction::Command(AppCommand::Layout(
-                LayoutCommand::ResizeFocused(ResizeDirection::Right),
-            )),
-            KeyCode::Up => InputAction::Command(AppCommand::Layout(
-                LayoutCommand::ResizeFocused(ResizeDirection::Up),
-            )),
-            KeyCode::Down => InputAction::Command(AppCommand::Layout(
-                LayoutCommand::ResizeFocused(ResizeDirection::Down),
-            )),
-            _ if matches_char(event.code, |ch| keymap.matches_quit(ch)) => {
-            InputAction::Command(AppCommand::Quit)
-            }
-            KeyCode::Char(ch) => InputAction::PtyBytes(alt_char_bytes(ch)),
-            _ => InputAction::Ignore,
-        };
     }
 
     if !event.modifiers.is_empty() {

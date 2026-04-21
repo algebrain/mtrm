@@ -25,6 +25,7 @@ mtrm-core = { path = "../crates/core" }
 mtrm-input = { path = "../crates/input" }
 mtrm-keymap = { path = "../crates/keymap" }
 mtrm-layout = { path = "../crates/layout" }
+mtrm-platform-keys = { path = "../crates/platform_keys" }
 mtrm-process = { path = "../crates/process" }
 mtrm-session = { path = "../crates/session" }
 mtrm-state = { path = "../crates/state" }

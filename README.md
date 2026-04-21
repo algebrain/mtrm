@@ -115,8 +115,13 @@ mtrm --debug-log /tmp/mtrm-pty.log
 
 ## Default Keybindings
 
+Shared on every current platform:
+
 - `Ctrl+C`: copy selected text
 - `Ctrl+V`: paste from the system clipboard
+
+Linux profile:
+
 - `Alt+X`: send `SIGINT` to the active process
 - `Alt+-`: split the active pane left/right
 - `Alt+=`: split the active pane top/bottom
@@ -130,14 +135,34 @@ mtrm --debug-log /tmp/mtrm-pty.log
 - `Alt+.`: next tab
 - `Alt+W`: close the current tab if it is not the last one
 - `Alt+Shift+Q`: save state and quit
-- `Left` / `Right` / `Up` / `Down`: send arrows to the active shell
 - `Alt+Left` / `Alt+Right` / `Alt+Up` / `Alt+Down`: move focus between panes
+
+macOS profile:
+
+- `Ctrl+X`: send `SIGINT` to the active process
+- `Ctrl+\`: split the active pane left/right
+- `Ctrl+Shift+\`: split the active pane top/bottom
+- `Ctrl+Q`: close the active pane if it is not the last one
+- `Ctrl+T`: open a new tab
+- `Ctrl+Shift+R`: rename the current tab
+- `Ctrl+Shift+E`: rename the current pane
+- `Ctrl+/`: open the help overlay
+- `Ctrl+Shift+Left` / `Ctrl+Shift+Right` / `Ctrl+Shift+Up` / `Ctrl+Shift+Down`: resize the active pane by one cell
+- `Ctrl+,`: previous tab
+- `Ctrl+.`: next tab
+- `Ctrl+W`: close the current tab if it is not the last one
+- `Ctrl+Shift+Q`: save state and quit
+- `Ctrl+Left` / `Ctrl+Right` / `Ctrl+Up` / `Ctrl+Down`: move focus between panes
+
+Shared navigation:
+
+- `Left` / `Right` / `Up` / `Down`: send arrows to the active shell
 - `Shift+Up` / `Shift+Down`: scroll pane history by one line
 - `Shift+PageUp` / `Shift+PageDown`: scroll pane history by one screen
 - `Home`: send Home to the active shell
 - `End`: return to the live bottom of the active pane
 
-Letter-based shortcuts are configured through `~/.mtrm/keymap.toml`.
+Letter-based command keys are configured through `~/.mtrm/keymap.toml`.
 
 If the system clipboard is unavailable, or if a clipboard read or write fails at runtime, `Ctrl+C` and `Ctrl+V` stay assigned to copy and paste, but `mtrm` shows a short notice inside the UI instead of exiting.
 

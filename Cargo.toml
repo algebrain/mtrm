@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/core",
+    "crates/platform_keys",
     "crates/config",
     "crates/keymap",
     "crates/layout",

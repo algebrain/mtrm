@@ -68,7 +68,10 @@ pub(crate) fn has_lingering_tty_processes_for_interrupted_group(
     .is_empty()
 }
 
-pub(crate) fn apply_termios_via_shell_tty(process_id: u32, termios: &Termios) -> Result<(), std::io::Error> {
+pub(crate) fn apply_termios_via_shell_tty(
+    process_id: u32,
+    termios: &Termios,
+) -> Result<(), std::io::Error> {
     let tty_path = shell_tty_path(process_id);
     let tty = OpenOptions::new().read(true).write(true).open(tty_path)?;
     tcsetattr(&tty, SetArg::TCSANOW, termios).map_err(std::io::Error::other)
@@ -117,7 +120,10 @@ pub(crate) fn post_interrupt_recovery(
 
         signal::kill(Pid::from_raw(-interrupted_process_group_id), Signal::SIGHUP)
             .map_err(|error| ProcessError::Interrupt(error.to_string()))?;
-        let _ = signal::kill(Pid::from_raw(-interrupted_process_group_id), Signal::SIGCONT);
+        let _ = signal::kill(
+            Pid::from_raw(-interrupted_process_group_id),
+            Signal::SIGCONT,
+        );
         thread::sleep(Duration::from_millis(50));
 
         let descendants = descendant_pids(process_id as i32);
@@ -132,15 +138,21 @@ pub(crate) fn post_interrupt_recovery(
             return Ok(());
         }
 
-        signal::kill(Pid::from_raw(-interrupted_process_group_id), Signal::SIGTERM)
-            .map_err(|error| ProcessError::Interrupt(error.to_string()))?;
+        signal::kill(
+            Pid::from_raw(-interrupted_process_group_id),
+            Signal::SIGTERM,
+        )
+        .map_err(|error| ProcessError::Interrupt(error.to_string()))?;
         return Ok(());
     }
 
     Ok(())
 }
 
-pub(crate) fn terminate_process_tree(process_id: u32, process_group_id: i32) -> Result<(), ProcessError> {
+pub(crate) fn terminate_process_tree(
+    process_id: u32,
+    process_group_id: i32,
+) -> Result<(), ProcessError> {
     let descendants = descendant_pids(process_id as i32);
 
     for pid in &descendants {
