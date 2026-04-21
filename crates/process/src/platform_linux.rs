@@ -68,23 +68,35 @@ pub(crate) fn has_lingering_tty_processes_for_interrupted_group(
     .is_empty()
 }
 
-pub(crate) fn apply_termios_via_shell_tty(
-    process_id: u32,
-    termios: &Termios,
-) -> Result<(), std::io::Error> {
+pub(crate) fn apply_termios_via_shell_tty(process_id: u32, termios: &Termios) -> Result<(), std::io::Error> {
     let tty_path = shell_tty_path(process_id);
     let tty = OpenOptions::new().read(true).write(true).open(tty_path)?;
     tcsetattr(&tty, SetArg::TCSANOW, termios).map_err(std::io::Error::other)
 }
 
-pub(crate) fn cleanup_lingering_tty_processes_after_interrupt(
+pub(crate) fn post_interrupt_recovery(
     master: &(dyn MasterPty + Send),
     process_id: u32,
     shell_process_group_id: i32,
     interrupted_process_group_id: i32,
+    baseline_termios: Option<&Termios>,
     attempts: usize,
     recheck_delay: Duration,
 ) -> Result<(), ProcessError> {
+    for _ in 0..attempts {
+        thread::sleep(recheck_delay);
+
+        let foreground_process_group_id = master.process_group_leader().map(|pid| pid as i32);
+        if foreground_process_group_id != Some(shell_process_group_id) {
+            continue;
+        }
+
+        if let Some(baseline_termios) = baseline_termios {
+            let _ = apply_termios_via_shell_tty(process_id, baseline_termios);
+        }
+        break;
+    }
+
     for _ in 0..attempts {
         thread::sleep(recheck_delay);
 

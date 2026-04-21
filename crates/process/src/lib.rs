@@ -264,9 +264,7 @@ impl ShellProcess {
     fn finish_interrupt_recovery(&mut self, context: InterruptContext) {
         let _ = self.restore_baseline_termios_after_interrupt();
         if let Some(interrupted_process_group_id) = context.interrupted_process_group_id {
-            let _ = self.restore_baseline_termios_via_shell_tty_after_interrupt();
-            let _ =
-                self.cleanup_lingering_tty_processes_after_interrupt(interrupted_process_group_id);
+            let _ = self.platform_post_interrupt_recovery(interrupted_process_group_id);
         }
         self.refresh_baseline_termios_if_shell_foreground();
     }
@@ -314,41 +312,16 @@ impl ShellProcess {
         self.baseline_termios = Some(current_termios);
     }
 
-    fn restore_baseline_termios_via_shell_tty_after_interrupt(&self) -> Result<(), ProcessError> {
-        for _ in 0..INTERRUPT_TERMIO_RECHECK_ATTEMPTS {
-            thread::sleep(INTERRUPT_TERMIO_RECHECK_DELAY);
-
-            let foreground_process_group_id =
-                self.master.process_group_leader().map(|pid| pid as i32);
-            if foreground_process_group_id != Some(self.process_group_id) {
-                continue;
-            }
-
-            self.restore_baseline_termios_via_shell_tty()?;
-            break;
-        }
-
-        Ok(())
-    }
-
-    fn restore_baseline_termios_via_shell_tty(&self) -> Result<(), ProcessError> {
-        let Some(baseline_termios) = &self.baseline_termios else {
-            return Ok(());
-        };
-
-        platform::apply_termios_via_shell_tty(self.process_id, baseline_termios)
-            .map_err(|error| ProcessError::Interrupt(error.to_string()))
-    }
-
-    fn cleanup_lingering_tty_processes_after_interrupt(
+    fn platform_post_interrupt_recovery(
         &self,
         interrupted_process_group_id: i32,
     ) -> Result<(), ProcessError> {
-        platform::cleanup_lingering_tty_processes_after_interrupt(
+        platform::post_interrupt_recovery(
             &*self.master,
             self.process_id,
             self.process_group_id,
             interrupted_process_group_id,
+            self.baseline_termios.as_ref(),
             INTERRUPT_TERMIO_RECHECK_ATTEMPTS,
             INTERRUPT_TERMIO_RECHECK_DELAY,
         )

@@ -28,18 +28,12 @@ pub(crate) fn has_lingering_tty_processes_for_interrupted_group(
     false
 }
 
-pub(crate) fn apply_termios_via_shell_tty(
-    _process_id: u32,
-    _termios: &Termios,
-) -> Result<(), io::Error> {
-    Ok(())
-}
-
-pub(crate) fn cleanup_lingering_tty_processes_after_interrupt(
+pub(crate) fn post_interrupt_recovery(
     _master: &(dyn MasterPty + Send),
     _process_id: u32,
     _shell_process_group_id: i32,
     _interrupted_process_group_id: i32,
+    _baseline_termios: Option<&Termios>,
     _attempts: usize,
     _recheck_delay: Duration,
 ) -> Result<(), ProcessError> {
