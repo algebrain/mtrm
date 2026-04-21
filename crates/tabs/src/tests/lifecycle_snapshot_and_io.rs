@@ -177,6 +177,42 @@ fn snapshot_canonicalizes_alias_temp_path_on_macos() {
     assert_eq!(snapshot.tabs[0].panes[0].cwd, canonical_dir);
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn snapshot_tracks_canonical_working_directory_after_cd_on_macos() {
+    let temp = tempdir().unwrap();
+    let canonical_root = fs::canonicalize(temp.path()).unwrap();
+    let next_dir = canonical_root.join("next");
+    fs::create_dir(&next_dir).unwrap();
+
+    let canonical_text = canonical_root.to_string_lossy();
+    let alias_text = canonical_text.replacen("/private/var/", "/var/", 1);
+    assert_ne!(
+        alias_text, canonical_text,
+        "test requires a canonical /private/var/... path on macOS"
+    );
+
+    let alias_root = PathBuf::from(alias_text);
+    let alias_next = alias_root.join("next");
+    assert!(alias_next.exists(), "alias path must exist: {:?}", alias_next);
+
+    let mut manager = TabManager::new(&shell_config(alias_root)).unwrap();
+    manager
+        .write_to_active_pane(format!("cd '{}'\n", alias_next.display()).as_bytes())
+        .unwrap();
+
+    let changed = wait_until(Duration::from_secs(2), || {
+        manager
+            .active_pane_cwd()
+            .map(|cwd| cwd == next_dir)
+            .unwrap_or(false)
+    });
+    assert!(changed, "pane cwd did not change to canonical {:?}", next_dir);
+
+    let snapshot = manager.snapshot().unwrap();
+    assert_eq!(snapshot.tabs[0].panes[0].cwd, next_dir);
+}
+
 #[test]
 fn from_snapshot_restores_tabs_and_panes() {
     let temp = tempdir().unwrap();

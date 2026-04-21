@@ -126,3 +126,55 @@ fn scenario_split_save_restore_canonicalizes_alias_temp_paths_on_macos() {
 
     assert_eq!(restored.tabs.active_pane_cwd().unwrap(), home);
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+#[serial]
+fn scenario_split_save_restore_keeps_canonical_cwd_after_cd_from_alias_path_on_macos() {
+    let temp = tempdir().unwrap();
+    let canonical_home = fs::canonicalize(temp.path()).unwrap();
+    let pane_dir = canonical_home.join("pane");
+    fs::create_dir(&pane_dir).unwrap();
+
+    let canonical_text = canonical_home.to_string_lossy();
+    let alias_text = canonical_text.replacen("/private/var/", "/var/", 1);
+    assert_ne!(
+        alias_text, canonical_text,
+        "test requires a canonical /private/var/... path on macOS"
+    );
+
+    let alias_home = PathBuf::from(alias_text);
+    let alias_pane_dir = alias_home.join("pane");
+    assert!(
+        alias_pane_dir.exists(),
+        "alias pane path must exist: {:?}",
+        alias_pane_dir
+    );
+
+    let mut app = App::new(shell_config(alias_home.clone())).unwrap();
+    app.handle_layout_command(LayoutCommand::SplitFocused(
+        mtrm_core::SplitDirection::Vertical,
+    ))
+    .unwrap();
+    app.handle_layout_command(LayoutCommand::MoveFocus(FocusMoveDirection::Right))
+        .unwrap();
+    app.tabs
+        .write_to_active_pane(format!("cd '{}'\n", alias_pane_dir.display()).as_bytes())
+        .unwrap();
+
+    let changed = wait_until(Duration::from_secs(2), || {
+        app.tabs
+            .active_pane_cwd()
+            .map(|cwd| cwd == pane_dir)
+            .unwrap_or(false)
+    });
+    assert!(changed, "active pane cwd did not change to canonical {:?}", pane_dir);
+
+    with_test_home(&alias_home, || app.save()).unwrap();
+    let restored = with_test_home(&alias_home, || {
+        App::restore_or_new(shell_config(alias_home.clone()))
+    })
+    .unwrap();
+
+    assert_eq!(restored.tabs.active_pane_cwd().unwrap(), pane_dir);
+}

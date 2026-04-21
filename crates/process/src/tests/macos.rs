@@ -24,6 +24,38 @@ fn current_dir_returns_canonical_temp_path_on_macos() {
 }
 
 #[test]
+fn current_dir_tracks_canonical_working_directory_after_cd_on_macos() {
+    let temp = tempdir().unwrap();
+    let canonical_root = fs::canonicalize(temp.path()).unwrap();
+    let next_dir = canonical_root.join("next");
+    fs::create_dir(&next_dir).unwrap();
+
+    let canonical_text = canonical_root.to_string_lossy();
+    let alias_text = canonical_text.replacen("/private/var/", "/var/", 1);
+    assert_ne!(
+        alias_text, canonical_text,
+        "test requires a canonical /private/var/... path on macOS"
+    );
+
+    let alias_root = PathBuf::from(alias_text);
+    let alias_next = alias_root.join("next");
+    assert!(alias_next.exists(), "alias path must exist: {:?}", alias_next);
+
+    let mut process = ShellProcess::spawn(shell_config(alias_root)).unwrap();
+    process
+        .write_all(format!("cd '{}'\n", alias_next.display()).as_bytes())
+        .unwrap();
+
+    let changed = wait_until(Duration::from_secs(2), || {
+        process
+            .current_dir()
+            .map(|cwd| cwd == next_dir)
+            .unwrap_or(false)
+    });
+    assert!(changed, "shell cwd did not change to canonical {:?}", next_dir);
+}
+
+#[test]
 fn terminate_stops_background_work_started_by_shell_on_macos() {
     let temp = tempdir().unwrap();
     let marker = temp.path().join("terminated-marker.txt");
