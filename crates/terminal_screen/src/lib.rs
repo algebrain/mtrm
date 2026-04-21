@@ -49,6 +49,8 @@ pub struct TerminalScreen {
     alt_dirty_since_snapshot: bool,
     screen_mode: ScreenMode,
     escape_state: EscapeSequenceState,
+    #[cfg(test)]
+    debug_alternate_capture_count: usize,
 }
 
 impl TerminalScreen {
@@ -67,11 +69,16 @@ impl TerminalScreen {
             alt_dirty_since_snapshot: false,
             screen_mode: ScreenMode::Normal,
             escape_state: EscapeSequenceState::Ground,
+            #[cfg(test)]
+            debug_alternate_capture_count: 0,
         }
     }
 
     pub fn process_bytes(&mut self, bytes: &[u8]) {
         for &byte in bytes {
+            let alternate_byte_affects_frame =
+                alternate_byte_affects_frame_in_state(byte, &self.escape_state);
+
             if self.screen_mode == ScreenMode::Normal
                 && !self.custom_scroll_region_active
                 && self.normal_capture_phase == NormalCapturePhase::PostRegion
@@ -83,17 +90,18 @@ impl TerminalScreen {
                 self.normal_capture_phase = NormalCapturePhase::Inactive;
             }
 
-            if self.screen_mode == ScreenMode::Alternate
-                && byte == 0x1b
-                && self.alt_dirty_since_snapshot
-            {
-                self.capture_alternate_snapshot();
-                self.alt_dirty_since_snapshot = false;
-            }
-
             let previous_mode = self.screen_mode;
             let rows = self.size().0;
-            self.track_escape_state_byte(byte, rows);
+            let escape_action = self.track_escape_state_byte(byte, rows);
+
+            if previous_mode == ScreenMode::Alternate && escape_action.leave_alternate_screen {
+                self.maybe_capture_alternate_snapshot(AlternateCaptureReason::LeaveAlternateScreen);
+            } else if self.screen_mode == ScreenMode::Alternate
+                && escape_action.alternate_repaint_boundary
+            {
+                self.maybe_capture_alternate_snapshot(AlternateCaptureReason::RepaintBoundary);
+            }
+
             self.parser.process(&[byte]);
 
             if previous_mode != ScreenMode::Alternate && self.screen_mode == ScreenMode::Alternate {
@@ -108,7 +116,7 @@ impl TerminalScreen {
             }
 
             if self.screen_mode == ScreenMode::Alternate {
-                if byte_affects_alternate_frame(byte) {
+                if alternate_byte_affects_frame {
                     self.alt_dirty_since_snapshot = true;
                 }
             } else {
@@ -138,10 +146,7 @@ impl TerminalScreen {
             self.normal_capture_phase = NormalCapturePhase::Inactive;
         }
 
-        if self.screen_mode == ScreenMode::Alternate && self.alt_dirty_since_snapshot {
-            self.capture_alternate_snapshot();
-            self.alt_dirty_since_snapshot = false;
-        }
+        self.maybe_capture_alternate_snapshot(AlternateCaptureReason::EndOfChunk);
     }
 
     pub fn resize(&mut self, rows: u16, cols: u16) {
@@ -154,7 +159,7 @@ impl TerminalScreen {
             self.normal_capture_phase = NormalCapturePhase::Inactive;
         }
         if self.screen_mode == ScreenMode::Alternate {
-            self.capture_alternate_snapshot();
+            self.maybe_capture_alternate_snapshot(AlternateCaptureReason::Resize);
         }
     }
 
@@ -313,6 +318,11 @@ impl TerminalScreen {
     }
 
     fn capture_alternate_snapshot(&mut self) {
+        #[cfg(test)]
+        {
+            self.debug_alternate_capture_count += 1;
+        }
+
         if self.alt_history_limit == 0 {
             return;
         }
@@ -330,10 +340,34 @@ impl TerminalScreen {
             let overflow = self.alt_history.len() - self.alt_history_limit;
             self.alt_history.drain(0..overflow);
         }
-        self.alt_scrollback = self.alt_scrollback.min(self.alt_history.len().saturating_sub(1));
+        self.alt_scrollback = self
+            .alt_scrollback
+            .min(self.alt_history.len().saturating_sub(1));
     }
 
-    fn track_escape_state_byte(&mut self, byte: u8, rows: u16) {
+    fn maybe_capture_alternate_snapshot(&mut self, _reason: AlternateCaptureReason) {
+        if !self.alt_dirty_since_snapshot {
+            return;
+        }
+
+        if self.screen_mode != ScreenMode::Alternate
+            && !matches!(_reason, AlternateCaptureReason::LeaveAlternateScreen)
+        {
+            return;
+        }
+
+        self.capture_alternate_snapshot();
+        self.alt_dirty_since_snapshot = false;
+    }
+
+    #[cfg(test)]
+    fn debug_alternate_capture_count(&self) -> usize {
+        self.debug_alternate_capture_count
+    }
+
+    fn track_escape_state_byte(&mut self, byte: u8, rows: u16) -> EscapeSequenceAction {
+        let mut action = EscapeSequenceAction::default();
+
         match &mut self.escape_state {
             EscapeSequenceState::Ground => {
                 if byte == 0x1b {
@@ -351,6 +385,7 @@ impl TerminalScreen {
             }
             EscapeSequenceState::Csi(params) => {
                 if is_csi_final_byte(byte) {
+                    let previous_mode = self.screen_mode;
                     update_screen_state_from_csi(
                         &mut self.screen_mode,
                         &mut self.custom_scroll_region_active,
@@ -358,6 +393,10 @@ impl TerminalScreen {
                         params,
                         byte,
                     );
+                    action.leave_alternate_screen = previous_mode == ScreenMode::Alternate
+                        && self.screen_mode == ScreenMode::Normal;
+                    action.alternate_repaint_boundary = previous_mode == ScreenMode::Alternate
+                        && is_alternate_repaint_boundary(params, byte);
                     self.escape_state = EscapeSequenceState::Ground;
                 } else if byte == 0x1b {
                     self.escape_state = EscapeSequenceState::Escape;
@@ -366,6 +405,8 @@ impl TerminalScreen {
                 }
             }
         }
+
+        action
     }
 }
 
@@ -374,6 +415,20 @@ enum EscapeSequenceState {
     Ground,
     Escape,
     Csi(Vec<u8>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct EscapeSequenceAction {
+    leave_alternate_screen: bool,
+    alternate_repaint_boundary: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AlternateCaptureReason {
+    EndOfChunk,
+    LeaveAlternateScreen,
+    Resize,
+    RepaintBoundary,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -428,6 +483,52 @@ fn byte_affects_normal_snapshot(byte: u8) -> bool {
     byte_affects_alternate_frame(byte)
 }
 
+fn alternate_byte_affects_frame_in_state(byte: u8, state: &EscapeSequenceState) -> bool {
+    match state {
+        EscapeSequenceState::Ground => byte_affects_alternate_frame(byte),
+        EscapeSequenceState::Escape => false,
+        EscapeSequenceState::Csi(_) => {
+            is_csi_final_byte(byte) && csi_final_byte_affects_alternate_frame(byte)
+        }
+    }
+}
+
+fn csi_final_byte_affects_alternate_frame(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'@' | b'A'
+            | b'B'
+            | b'C'
+            | b'D'
+            | b'E'
+            | b'F'
+            | b'G'
+            | b'H'
+            | b'J'
+            | b'K'
+            | b'L'
+            | b'M'
+            | b'P'
+            | b'S'
+            | b'T'
+            | b'X'
+            | b'd'
+            | b'f'
+            | b'h'
+            | b'l'
+            | b'm'
+            | b'r'
+    )
+}
+
+fn is_alternate_repaint_boundary(params: &[u8], final_byte: u8) -> bool {
+    matches!(final_byte, b'J') && clears_entire_screen(params)
+}
+
+fn clears_entire_screen(params: &[u8]) -> bool {
+    params.is_empty() || matches!(params, b"2" | b"3")
+}
+
 fn is_custom_scroll_region(params: &[u8], rows: u16) -> bool {
     if params.is_empty() {
         return false;
@@ -458,7 +559,8 @@ fn screen_color(color: vt100::Color) -> ScreenColor {
 }
 
 fn snapshot_rows(lines: &[ScreenLine]) -> Vec<String> {
-    lines.iter()
+    lines
+        .iter()
         .map(|line| {
             line.cells
                 .iter()
