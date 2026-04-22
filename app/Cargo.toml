@@ -36,3 +36,6 @@ thiserror = "2"
 [dev-dependencies]
 serial_test = "3"
 tempfile = "3"
+
+[build-dependencies]
+time = { version = "0.3", features = ["formatting", "macros"] }

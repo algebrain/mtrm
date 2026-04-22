@@ -121,13 +121,17 @@ fn parse_cli_args_rejects_unknown_flags() {
 }
 
 #[test]
-fn cli_version_string_uses_git_tag_and_build_suffix() {
+fn cli_version_string_uses_git_tag_and_build_timestamp() {
     let version = cli_version_string();
     let (tag, suffix) = version.split_once(' ').unwrap();
 
     assert!(tag.starts_with('v'));
-    assert!(!suffix.is_empty());
-    assert!(suffix.chars().all(|ch| ch.is_ascii_digit()));
+    assert_eq!(suffix.len(), 13);
+    assert_eq!(suffix.chars().nth(6), Some('-'));
+    assert!(suffix
+        .chars()
+        .enumerate()
+        .all(|(index, ch)| if index == 6 { ch == '-' } else { ch.is_ascii_digit() }));
 }
 
 #[test]
