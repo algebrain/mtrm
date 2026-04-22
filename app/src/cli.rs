@@ -1,6 +1,5 @@
 use std::io;
 use std::path::PathBuf;
-use std::time::UNIX_EPOCH;
 
 use mtrm_clipboard::{ClipboardBackend, ClipboardError, SystemClipboard, UnavailableClipboard};
 use mtrm_platform_keys::{
@@ -159,17 +158,11 @@ Notes:
 }
 
 pub(crate) fn cli_version_string() -> String {
-    format!("{} {}", env!("MTRM_GIT_TAG"), executable_mtime_secs())
-}
-
-fn executable_mtime_secs() -> u64 {
-    std::env::current_exe()
-        .ok()
-        .and_then(|path| std::fs::metadata(path).ok())
-        .and_then(|metadata| metadata.modified().ok())
-        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0)
+    format!(
+        "{} {}",
+        env!("MTRM_GIT_TAG"),
+        env!("MTRM_BUILD_TIMESTAMP")
+    )
 }
 
 pub(crate) fn tabs_error(error: impl ToString) -> AppError {
