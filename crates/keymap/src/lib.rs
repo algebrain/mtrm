@@ -307,6 +307,9 @@ mod tests {
         assert!(keymap.matches_rename_tab('К'));
         assert!(keymap.matches_rename_pane('E'));
         assert!(keymap.matches_quit(':'));
+        assert!(keymap.matches_quit('X'));
+        assert!(keymap.matches_quit('Ч'));
+        assert!(keymap.matches_quit('Χ'));
     }
 
     #[test]

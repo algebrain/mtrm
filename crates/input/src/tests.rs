@@ -432,12 +432,41 @@ fn macos_profile_maps_ctrl_t_and_ctrl_w_to_tab_commands() {
 }
 
 #[test]
-fn macos_profile_maps_ctrl_arrows_and_ctrl_shift_arrows() {
+fn macos_profile_maps_ctrl_s_to_split_commands() {
     let keymap = Keymap::default();
 
     assert_eq!(
         map_key_event_with_profile(
-            key_event(KeyCode::Left, KeyModifiers::CONTROL),
+            key_event(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Command(AppCommand::Layout(LayoutCommand::SplitFocused(
+            mtrm_core::SplitDirection::Vertical
+        )))
+    );
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(
+                KeyCode::Char('S'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Command(AppCommand::Layout(LayoutCommand::SplitFocused(
+            mtrm_core::SplitDirection::Horizontal
+        )))
+    );
+}
+
+#[test]
+fn macos_profile_maps_ctrl_bfpn_and_ctrl_shift_bfpn() {
+    let keymap = Keymap::default();
+
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(KeyCode::Char('b'), KeyModifiers::CONTROL),
             &keymap,
             PlatformKeyProfile::MacOs
         ),
@@ -447,13 +476,143 @@ fn macos_profile_maps_ctrl_arrows_and_ctrl_shift_arrows() {
     );
     assert_eq!(
         map_key_event_with_profile(
-            key_event(KeyCode::Right, KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+            key_event(KeyCode::Char('f'), KeyModifiers::CONTROL),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
+            FocusMoveDirection::Right
+        )))
+    );
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(KeyCode::Char('p'), KeyModifiers::CONTROL),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
+            FocusMoveDirection::Up
+        )))
+    );
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(KeyCode::Char('n'), KeyModifiers::CONTROL),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Command(AppCommand::Layout(LayoutCommand::MoveFocus(
+            FocusMoveDirection::Down
+        )))
+    );
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(
+                KeyCode::Char('B'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
+            ResizeDirection::Left
+        )))
+    );
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(
+                KeyCode::Char('F'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ),
             &keymap,
             PlatformKeyProfile::MacOs
         ),
         InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
             ResizeDirection::Right
         )))
+    );
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(
+                KeyCode::Char('P'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
+            ResizeDirection::Up
+        )))
+    );
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(
+                KeyCode::Char('N'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Command(AppCommand::Layout(LayoutCommand::ResizeFocused(
+            ResizeDirection::Down
+        )))
+    );
+}
+
+#[test]
+fn macos_profile_maps_ctrl_shift_x_to_quit() {
+    let keymap = Keymap::default();
+
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(
+                KeyCode::Char('X'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Command(AppCommand::Quit)
+    );
+}
+
+#[test]
+fn macos_profile_old_problematic_shortcuts_are_not_reserved() {
+    let keymap = Keymap::default();
+
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(KeyCode::Char('/'), KeyModifiers::CONTROL),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Ignore
+    );
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(KeyCode::Left, KeyModifiers::CONTROL),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Ignore
+    );
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(KeyCode::Right, KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Ignore
+    );
+    assert_eq!(
+        map_key_event_with_profile(
+            key_event(
+                KeyCode::Char('Q'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ),
+            &keymap,
+            PlatformKeyProfile::MacOs
+        ),
+        InputAction::Ignore
     );
 }
 

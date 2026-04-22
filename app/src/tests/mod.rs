@@ -59,6 +59,12 @@ fn current_platform_bindings() -> &'static mtrm_platform_keys::PlatformKeyBindin
     key_bindings_for_profile(current_platform_key_profile())
 }
 
+fn bindings_for_profile(
+    profile: PlatformKeyProfile,
+) -> &'static mtrm_platform_keys::PlatformKeyBindings {
+    key_bindings_for_profile(profile)
+}
+
 fn modified_char_event(ch: char, binding: ModifiedCharBinding) -> KeyEvent {
     key_event(KeyCode::Char(ch), binding.modifiers)
 }
@@ -101,5 +107,6 @@ include!("cli_restore_and_rename_entry.rs");
 include!("rename_and_clipboard.rs");
 include!("selection_mouse_and_input.rs");
 include!("layout_scroll_and_recovery.rs");
+include!("platform_key_profiles.rs");
 include!("runtime_render_and_save.rs");
 include!("startup_and_restore_scenario.rs");

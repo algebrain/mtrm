@@ -170,8 +170,8 @@ fn help_text_for_macos_profile_mentions_macos_bindings() {
     assert!(help.contains("Ctrl+X           Send interrupt to active process"));
     assert!(help.contains("Ctrl+T           New tab"));
     assert!(help.contains("Ctrl+Shift+R     Rename current tab"));
-    assert!(help.contains("Ctrl+/           Open help overlay"));
-    assert!(help.contains("Ctrl+Shift+Left  Resize pane left"));
+    assert!(help.contains("Ctrl+G           Open help overlay"));
+    assert!(help.contains("Ctrl+Shift+B     Resize pane left"));
 }
 
 fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {

@@ -43,12 +43,22 @@ impl Shortcut {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModifiedCharBinding {
     pub modifiers: KeyModifiers,
+    pub chars: &'static [char],
     pub label: &'static str,
 }
 
 impl ModifiedCharBinding {
     pub fn matches(&self, event: KeyEvent, matcher: impl FnOnce(char) -> bool) -> bool {
-        event.modifiers == self.modifiers && matches!(event.code, KeyCode::Char(ch) if matcher(ch))
+        event.modifiers == self.modifiers
+            && matches!(
+                event.code,
+                KeyCode::Char(ch)
+                    if if self.chars.is_empty() {
+                        matcher(ch)
+                    } else {
+                        self.chars.contains(&ch)
+                    }
+            )
     }
 }
 
@@ -84,38 +94,47 @@ const CONTROL_SHIFT: KeyModifiers =
 const LINUX_BINDINGS: PlatformKeyBindings = PlatformKeyBindings {
     interrupt: ModifiedCharBinding {
         modifiers: KeyModifiers::ALT,
+        chars: &[],
         label: "Alt+X",
     },
     close_pane: ModifiedCharBinding {
         modifiers: KeyModifiers::ALT,
+        chars: &[],
         label: "Alt+Q",
     },
     new_tab: ModifiedCharBinding {
         modifiers: KeyModifiers::ALT,
+        chars: &[],
         label: "Alt+T",
     },
     previous_tab: ModifiedCharBinding {
         modifiers: KeyModifiers::ALT,
+        chars: &[],
         label: "Alt+,",
     },
     next_tab: ModifiedCharBinding {
         modifiers: KeyModifiers::ALT,
+        chars: &[],
         label: "Alt+.",
     },
     close_tab: ModifiedCharBinding {
         modifiers: KeyModifiers::ALT,
+        chars: &[],
         label: "Alt+W",
     },
     rename_tab: ModifiedCharBinding {
         modifiers: ALT_SHIFT,
+        chars: &[],
         label: "Alt+Shift+R",
     },
     rename_pane: ModifiedCharBinding {
         modifiers: ALT_SHIFT,
+        chars: &[],
         label: "Alt+Shift+E",
     },
     quit: ModifiedCharBinding {
         modifiers: ALT_SHIFT,
+        chars: &[],
         label: "Alt+Shift+Q",
     },
     split_vertical: Shortcut {
@@ -178,94 +197,103 @@ const LINUX_BINDINGS: PlatformKeyBindings = PlatformKeyBindings {
 const MACOS_BINDINGS: PlatformKeyBindings = PlatformKeyBindings {
     interrupt: ModifiedCharBinding {
         modifiers: KeyModifiers::CONTROL,
+        chars: &[],
         label: "Ctrl+X",
     },
     close_pane: ModifiedCharBinding {
         modifiers: KeyModifiers::CONTROL,
+        chars: &[],
         label: "Ctrl+Q",
     },
     new_tab: ModifiedCharBinding {
         modifiers: KeyModifiers::CONTROL,
+        chars: &[],
         label: "Ctrl+T",
     },
     previous_tab: ModifiedCharBinding {
         modifiers: KeyModifiers::CONTROL,
+        chars: &[],
         label: "Ctrl+,",
     },
     next_tab: ModifiedCharBinding {
         modifiers: KeyModifiers::CONTROL,
+        chars: &[],
         label: "Ctrl+.",
     },
     close_tab: ModifiedCharBinding {
         modifiers: KeyModifiers::CONTROL,
+        chars: &[],
         label: "Ctrl+W",
     },
     rename_tab: ModifiedCharBinding {
         modifiers: CONTROL_SHIFT,
+        chars: &[],
         label: "Ctrl+Shift+R",
     },
     rename_pane: ModifiedCharBinding {
         modifiers: CONTROL_SHIFT,
+        chars: &[],
         label: "Ctrl+Shift+E",
     },
     quit: ModifiedCharBinding {
         modifiers: CONTROL_SHIFT,
-        label: "Ctrl+Shift+Q",
+        chars: &['X', 'Ч', 'Χ'],
+        label: "Ctrl+Shift+X",
     },
     split_vertical: Shortcut {
         modifiers: KeyModifiers::CONTROL,
-        key: ShortcutKey::Char('\\'),
-        label: "Ctrl+\\",
+        key: ShortcutKey::Char('s'),
+        label: "Ctrl+S",
     },
     split_horizontal: Shortcut {
         modifiers: CONTROL_SHIFT,
-        key: ShortcutKey::Char('\\'),
-        label: "Ctrl+Shift+\\",
+        key: ShortcutKey::Char('S'),
+        label: "Ctrl+Shift+S",
     },
     open_help: Shortcut {
         modifiers: KeyModifiers::CONTROL,
-        key: ShortcutKey::Char('/'),
-        label: "Ctrl+/",
+        key: ShortcutKey::Char('g'),
+        label: "Ctrl+G",
     },
     focus_left: Shortcut {
         modifiers: KeyModifiers::CONTROL,
-        key: ShortcutKey::Left,
-        label: "Ctrl+Left",
+        key: ShortcutKey::Char('b'),
+        label: "Ctrl+B",
     },
     focus_right: Shortcut {
         modifiers: KeyModifiers::CONTROL,
-        key: ShortcutKey::Right,
-        label: "Ctrl+Right",
+        key: ShortcutKey::Char('f'),
+        label: "Ctrl+F",
     },
     focus_up: Shortcut {
         modifiers: KeyModifiers::CONTROL,
-        key: ShortcutKey::Up,
-        label: "Ctrl+Up",
+        key: ShortcutKey::Char('p'),
+        label: "Ctrl+P",
     },
     focus_down: Shortcut {
         modifiers: KeyModifiers::CONTROL,
-        key: ShortcutKey::Down,
-        label: "Ctrl+Down",
+        key: ShortcutKey::Char('n'),
+        label: "Ctrl+N",
     },
     resize_left: Shortcut {
         modifiers: CONTROL_SHIFT,
-        key: ShortcutKey::Left,
-        label: "Ctrl+Shift+Left",
+        key: ShortcutKey::Char('B'),
+        label: "Ctrl+Shift+B",
     },
     resize_right: Shortcut {
         modifiers: CONTROL_SHIFT,
-        key: ShortcutKey::Right,
-        label: "Ctrl+Shift+Right",
+        key: ShortcutKey::Char('F'),
+        label: "Ctrl+Shift+F",
     },
     resize_up: Shortcut {
         modifiers: CONTROL_SHIFT,
-        key: ShortcutKey::Up,
-        label: "Ctrl+Shift+Up",
+        key: ShortcutKey::Char('P'),
+        label: "Ctrl+Shift+P",
     },
     resize_down: Shortcut {
         modifiers: CONTROL_SHIFT,
-        key: ShortcutKey::Down,
-        label: "Ctrl+Shift+Down",
+        key: ShortcutKey::Char('N'),
+        label: "Ctrl+Shift+N",
     },
 };
 
@@ -304,40 +332,4 @@ pub fn current_platform_key_bindings() -> &'static PlatformKeyBindings {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crossterm::event::{KeyEventKind, KeyEventState};
-
-    fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
-        KeyEvent {
-            code,
-            modifiers,
-            kind: KeyEventKind::Press,
-            state: KeyEventState::NONE,
-        }
-    }
-
-    #[test]
-    fn linux_and_macos_profiles_are_distinct() {
-        let linux = key_bindings_for_profile(PlatformKeyProfile::Linux);
-        let macos = key_bindings_for_profile(PlatformKeyProfile::MacOs);
-
-        assert_ne!(linux.interrupt.label, macos.interrupt.label);
-        assert_ne!(linux.open_help.label, macos.open_help.label);
-    }
-
-    #[test]
-    fn shortcut_matches_expected_key_event() {
-        let bindings = key_bindings_for_profile(PlatformKeyProfile::MacOs);
-        assert!(
-            bindings
-                .open_help
-                .matches(key_event(KeyCode::Char('/'), KeyModifiers::CONTROL))
-        );
-        assert!(
-            !bindings
-                .open_help
-                .matches(key_event(KeyCode::F(1), KeyModifiers::SHIFT))
-        );
-    }
-}
+mod tests;
