@@ -4,7 +4,9 @@
 [![Latest Release](https://img.shields.io/github/v/release/algebrain/mtrm)](https://github.com/algebrain/mtrm/releases)
 [![Platform](https://img.shields.io/badge/platform-Linux%20desktop-2ea44f)](https://github.com/algebrain/mtrm)
 
-<img src="docs/readme-assets/screenshot.gif" width="600" alt="mtrm screenshot">
+<div align="center">
+  <img src="docs/readme-assets/screenshot.gif" width="600" alt="mtrm screenshot">
+</div>
 
 `mtrm` is a personal terminal workspace manager for local Linux shell work.
 
